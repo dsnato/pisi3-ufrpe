@@ -108,3 +108,126 @@ for i, col in enumerate(df.columns, 1):
 print("\n" + "="*80)
 print("✅ CONFIGURAÇÃO CONCLUÍDA!")
 print("="*80)
+
+plt.style.use('ggplot')
+sns.set_palette("husl")
+
+# Carregar dataset
+df = pd.read_parquet("hotel_bookings.parquet")
+print(f"✅ Dataset carregado: {df.shape[0]:,} linhas × {df.shape[1]} colunas\n")
+
+# ----------------------------------------------------------------------------
+# Análise de Valores Faltantes
+# ----------------------------------------------------------------------------
+print("="*80)
+print("ANÁLISE DE VALORES FALTANTES")
+print("="*80)
+
+missing_data = df.isnull().sum().sort_values(ascending=False)
+missing_percent = (df.isnull().sum() / df.shape[0] * 100).sort_values(ascending=False)
+
+missing_df = pd.DataFrame({
+    'Valores Faltantes': missing_data,
+    'Percentual (%)': missing_percent
+})
+
+missing_with_nulls = missing_df[missing_df['Valores Faltantes'] > 0]
+
+if len(missing_with_nulls) > 0:
+    print("\n📊 COLUNAS COM VALORES FALTANTES:")
+    display(missing_with_nulls)
+else:
+    print("\n✅ Nenhum valor faltante encontrado!")
+
+# Visualização matricial
+plt.figure(figsize=(12, 6))
+msno.matrix(df, fontsize=10)
+plt.title('Matriz de Valores Faltantes', fontsize=16, fontweight='bold')
+plt.tight_layout()
+plt.show()
+
+# Heatmap de correlação
+if len(missing_with_nulls) > 1:
+    plt.figure(figsize=(10, 6))
+    msno.heatmap(df, fontsize=10)
+    plt.title('Correlação entre Valores Faltantes', fontsize=16, fontweight='bold')
+    plt.tight_layout()
+    plt.show()
+
+# ----------------------------------------------------------------------------
+# Estatísticas Descritivas - Numéricas
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("ESTATÍSTICAS DESCRITIVAS - VARIÁVEIS NUMÉRICAS")
+print("="*80)
+
+numeric_stats = df.describe().T
+numeric_stats['missing'] = missing_data
+numeric_stats['missing_pct'] = missing_percent
+
+print("\n📊 RESUMO ESTATÍSTICO:")
+display(numeric_stats)
+
+numeric_stats.to_csv('numeric_statistics.csv')
+print("\n💾 Estatísticas salvas em: numeric_statistics.csv")
+
+# ----------------------------------------------------------------------------
+# Estatísticas Descritivas - Categóricas
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("ESTATÍSTICAS DESCRITIVAS - VARIÁVEIS CATEGÓRICAS")
+print("="*80)
+
+categorical_cols = df.select_dtypes(include=['object']).columns
+print(f"\n📋 Total: {len(categorical_cols)} variáveis categóricas\n")
+
+for col in categorical_cols:
+    print(f"\n{'='*60}")
+    print(f"📌 {col.upper()}")
+    print(f"{'='*60}")
+    
+    value_counts = df[col].value_counts()
+    total = len(df)
+    
+    print(f"   Categorias únicas: {df[col].nunique()}")
+    print(f"   Valores faltantes: {df[col].isnull().sum()} ({df[col].isnull().sum()/total*100:.2f}%)")
+    print(f"\n   Top 5 valores:")
+    
+    for idx, (value, count) in enumerate(value_counts.head().items(), 1):
+        percentage = (count / total) * 100
+        print(f"      {idx}. {value}: {count:,} ({percentage:.2f}%)")
+
+# ----------------------------------------------------------------------------
+# Detecção de Outliers
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("DETECÇÃO DE OUTLIERS")
+print("="*80)
+
+key_vars = ['lead_time', 'adr', 'stays_in_weekend_nights', 
+            'stays_in_week_nights', 'adults', 'children', 'babies']
+key_vars = [v for v in key_vars if v in df.columns]
+
+fig, axes = plt.subplots(2, 4, figsize=(16, 8))
+axes = axes.flatten()
+
+for idx, col in enumerate(key_vars[:8]):
+    axes[idx].boxplot(df[col].dropna())
+    axes[idx].set_title(col, fontweight='bold')
+    axes[idx].set_ylabel('Valor')
+    
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    IQR = Q3 - Q1
+    outliers = df[(df[col] < Q1 - 1.5*IQR) | (df[col] > Q3 + 1.5*IQR)][col]
+    
+    axes[idx].text(0.5, 0.95, f'Outliers: {len(outliers)} ({len(outliers)/len(df)*100:.1f}%)',
+                   transform=axes[idx].transAxes, ha='center', va='top',
+                   bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+plt.tight_layout()
+plt.show()
+
+print("\n" + "="*80)
+print("✅ ANÁLISE DE QUALIDADE CONCLUÍDA!")
+print("="*80)
