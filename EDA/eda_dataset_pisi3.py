@@ -404,3 +404,188 @@ plt.show()
 print("\n" + "="*80)
 print("✅ ANÁLISE TEMPORAL CONCLUÍDA!")
 print("="*80)
+
+# ============================================================================
+# ANÁLISE GEOGRÁFICA E FINANCEIRA
+# ============================================================================
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+warnings.filterwarnings('ignore')
+
+plt.style.use('ggplot')
+sns.set_palette("husl")
+
+df = pd.read_parquet("hotel_bookings.parquet")
+print(f"✅ Dataset carregado: {df.shape[0]:,} linhas\n")
+
+# ----------------------------------------------------------------------------
+# Análise Geográfica
+# ----------------------------------------------------------------------------
+print("="*80)
+print("ANÁLISE GEOGRÁFICA - DISTRIBUIÇÃO POR PAÍSES")
+print("="*80)
+
+country_counts = df['country'].value_counts().head(10)
+
+plt.figure(figsize=(12, 6))
+country_counts.plot(kind='bar', color='teal', edgecolor='black')
+plt.title('Top 10 Países por Número de Reservas', fontweight='bold', fontsize=14)
+plt.xlabel('País', fontsize=12)
+plt.ylabel('Número de Reservas', fontsize=12)
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
+plt.show()
+
+print("\n📊 TOP 10 PAÍSES:")
+for i, (country, count) in enumerate(country_counts.items(), 1):
+    print(f"   {i:2d}. {country}: {count:,} reservas")
+
+# Taxa de cancelamento por país
+country_stats = df.groupby('country').agg({
+    'is_canceled': ['count', 'mean']
+}).round(3)
+country_stats.columns = ['total_reservas', 'taxa_cancelamento']
+country_stats = country_stats[country_stats['total_reservas'] > 100]
+top_cancel_countries = country_stats.sort_values('taxa_cancelamento', ascending=False).head(10)
+
+plt.figure(figsize=(12, 6))
+top_cancel_countries['taxa_cancelamento'].plot(kind='bar', color='orange', edgecolor='black')
+plt.title('Top 10 Países com Maior Taxa de Cancelamento (>100 reservas)', 
+          fontweight='bold', fontsize=14)
+plt.xlabel('País', fontsize=12)
+plt.ylabel('Taxa de Cancelamento', fontsize=12)
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
+plt.show()
+
+print("\n📊 MAIORES TAXAS DE CANCELAMENTO (países com >100 reservas):")
+for i, (country, row) in enumerate(top_cancel_countries.iterrows(), 1):
+    print(f"   {i:2d}. {country}: {row['taxa_cancelamento']:.3f}")
+
+# ----------------------------------------------------------------------------
+# Análise de Preços (ADR)
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("ANÁLISE DE PREÇOS (ADR - Average Daily Rate)")
+print("="*80)
+
+month_order = ['January', 'February', 'March', 'April', 'May', 'June',
+               'July', 'August', 'September', 'October', 'November', 'December']
+
+fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+
+# Distribuição do ADR
+axes[0, 0].hist(df['adr'], bins=50, color='purple', alpha=0.7, edgecolor='black')
+axes[0, 0].set_title('Distribuição do ADR', fontweight='bold')
+axes[0, 0].set_xlabel('ADR')
+axes[0, 0].set_ylabel('Frequência')
+
+# ADR por tipo de hotel
+sns.boxplot(x='hotel', y='adr', data=df, ax=axes[0, 1])
+axes[0, 1].set_title('ADR por Tipo de Hotel', fontweight='bold')
+axes[0, 1].set_ylabel('ADR')
+
+# ADR vs Cancelamento
+sns.boxplot(x='is_canceled', y='adr', data=df, ax=axes[1, 0])
+axes[1, 0].set_title('ADR vs Cancelamento', fontweight='bold')
+axes[1, 0].set_ylabel('ADR')
+axes[1, 0].set_xlabel('Cancelado (0=Não, 1=Sim)')
+
+# Preço médio por mês
+monthly_adr = df.groupby('arrival_date_month')['adr'].mean()
+monthly_adr = monthly_adr.reindex(month_order)
+
+monthly_adr.plot(kind='bar', ax=axes[1, 1], color='green', edgecolor='black')
+axes[1, 1].set_title('Preço Médio (ADR) por Mês', fontweight='bold')
+axes[1, 1].set_xlabel('Mês')
+axes[1, 1].set_ylabel('ADR Médio')
+axes[1, 1].tick_params(axis='x', rotation=45)
+
+plt.tight_layout()
+plt.show()
+
+# Estatísticas do ADR
+df_clean = df[df['adr'] < 1000]
+
+print(f"\n📊 ESTATÍSTICAS DO ADR (sem outliers extremos):")
+print(f"   Média: ${df_clean['adr'].mean():.2f}")
+print(f"   Mediana: ${df_clean['adr'].median():.2f}")
+print(f"   Máximo: ${df_clean['adr'].max():.2f}")
+print(f"   Mínimo: ${df_clean['adr'].min():.2f}")
+
+# ADR por cancelamento
+adr_cancel = df[df['is_canceled'] == 1]['adr'].mean()
+adr_no_cancel = df[df['is_canceled'] == 0]['adr'].mean()
+
+print(f"\n📊 ADR POR STATUS:")
+print(f"   Cancelado: ${adr_cancel:.2f}")
+print(f"   Não Cancelado: ${adr_no_cancel:.2f}")
+print(f"   Diferença: ${abs(adr_cancel - adr_no_cancel):.2f}")
+
+# ----------------------------------------------------------------------------
+# Análise de Lead Time
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("ANÁLISE DE LEAD TIME (ANTECEDÊNCIA DA RESERVA)")
+print("="*80)
+
+fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+
+# Distribuição do lead time
+axes[0].hist(df['lead_time'], bins=50, color='blue', alpha=0.7, edgecolor='black')
+axes[0].set_title('Distribuição do Lead Time', fontweight='bold', fontsize=14)
+axes[0].set_xlabel('Lead Time (dias)', fontsize=12)
+axes[0].set_ylabel('Frequência', fontsize=12)
+
+# Lead time vs Cancelamento
+sns.boxplot(x='is_canceled', y='lead_time', data=df, ax=axes[1])
+axes[1].set_title('Lead Time vs Cancelamento', fontweight='bold', fontsize=14)
+axes[1].set_xlabel('Cancelado (0=Não, 1=Sim)', fontsize=12)
+axes[1].set_ylabel('Lead Time (dias)', fontsize=12)
+
+plt.tight_layout()
+plt.show()
+
+# Estatísticas detalhadas
+lead_time_mean = df['lead_time'].mean()
+lead_time_cancel = df[df['is_canceled'] == 1]['lead_time'].mean()
+lead_time_no_cancel = df[df['is_canceled'] == 0]['lead_time'].mean()
+
+print(f"\n📊 ESTATÍSTICAS DE LEAD TIME:")
+print(f"   Média Geral: {lead_time_mean:.1f} dias")
+print(f"   Cancelamentos: {lead_time_cancel:.1f} dias")
+print(f"   Não Cancelamentos: {lead_time_no_cancel:.1f} dias")
+print(f"   Diferença: {abs(lead_time_cancel - lead_time_no_cancel):.1f} dias")
+
+# Correlação
+correlation = df['lead_time'].corr(df['is_canceled'])
+print(f"\n📈 Correlação Lead Time vs Cancelamento: {correlation:.3f}")
+
+# ----------------------------------------------------------------------------
+# Lead Time vs ADR vs Cancelamento
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("ANÁLISE MULTIVARIADA: LEAD TIME VS ADR VS CANCELAMENTO")
+print("="*80)
+
+df_plot = df[df['adr'] < 1000].copy()
+
+plt.figure(figsize=(12, 8))
+scatter = plt.scatter(df_plot['lead_time'], df_plot['adr'], 
+                     c=df_plot['is_canceled'], cmap='viridis', 
+                     alpha=0.6, edgecolors='none')
+plt.colorbar(scatter, label='Cancelado')
+plt.title('Lead Time vs ADR vs Cancelamento', fontweight='bold', fontsize=14)
+plt.xlabel('Lead Time (dias)', fontsize=12)
+plt.ylabel('ADR', fontsize=12)
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+print("\n" + "="*80)
+print("✅ ANÁLISE GEOGRÁFICA E FINANCEIRA CONCLUÍDA!")
+print("="*80)
