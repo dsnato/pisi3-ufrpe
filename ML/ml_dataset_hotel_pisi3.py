@@ -512,3 +512,229 @@ print(f"   • Melhor F1-Score: {best_f1:.4f}")
 print(f"   • Arquivos salvos: {len(results) + 4}")
 print("="*80)
 
+# ============================================================================
+# OTIMIZAÇÃO E ANÁLISE DE IMPORTÂNCIA
+# ============================================================================
+
+print("="*80)
+print("⚙️ OTIMIZAÇÃO DE HIPERPARÂMETROS")
+print("="*80)
+
+# ----------------------------------------------------------------------------
+# Carregar dados
+# ----------------------------------------------------------------------------
+print("\n📂 Carregando dados...")
+
+X_train = joblib.load('X_train.pkl')
+X_test = joblib.load('X_test.pkl')
+y_train = joblib.load('y_train.pkl')
+y_test = joblib.load('y_test.pkl')
+preprocessor = joblib.load('preprocessor.pkl')
+
+print(f"   ✅ Dados carregados")
+
+# ----------------------------------------------------------------------------
+# Configurar Otimização
+# ----------------------------------------------------------------------------
+print("\n🔍 Configurando otimização...")
+print("   Modelo: Random Forest")
+print("   Método: RandomizedSearchCV")
+print("   ⏱️ Estimativa: 5-10 minutos\n")
+
+param_distributions = {
+    'classifier__n_estimators': [100, 150, 200],
+    'classifier__max_depth': [None, 10, 20, 30],
+    'classifier__min_samples_split': [2, 5, 10],
+    'classifier__min_samples_leaf': [1, 2, 4],
+    'classifier__max_features': ['sqrt', 'log2']
+}
+
+rf_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('classifier', RandomForestClassifier(random_state=42, n_jobs=1))
+])
+
+random_search = RandomizedSearchCV(
+    rf_pipeline, 
+    param_distributions, 
+    n_iter=10,
+    cv=2,
+    scoring='f1', 
+    n_jobs=1, 
+    verbose=2, 
+    random_state=42
+)
+
+# ----------------------------------------------------------------------------
+# Executar Otimização
+# ----------------------------------------------------------------------------
+print("🔍 Executando busca...")
+print("   10 iterações × 2 folds = 20 fits")
+print("   ⏳ Aguarde...\n")
+
+try:
+    random_search.fit(X_train, y_train)
+    
+    print("\n" + "="*80)
+    print("✅ OTIMIZAÇÃO CONCLUÍDA!")
+    print("="*80)
+    
+    print(f"\n🎯 MELHORES PARÂMETROS:")
+    for param, value in random_search.best_params_.items():
+        param_name = param.replace('classifier__', '')
+        print(f"   • {param_name}: {value}")
+    
+    print(f"\n📊 F1-Score (CV): {random_search.best_score_:.4f}")
+    
+    best_rf_model = random_search.best_estimator_
+    y_pred_optimized = best_rf_model.predict(X_test)
+    
+    test_accuracy = accuracy_score(y_test, y_pred_optimized)
+    test_f1 = f1_score(y_test, y_pred_optimized)
+    
+    print(f"\n📊 TESTE:")
+    print(f"   • Acurácia: {test_accuracy:.4f}")
+    print(f"   • F1-Score: {test_f1:.4f}")
+    
+    joblib.dump(best_rf_model, 'optimized_rf_model.pkl')
+    print(f"\n💾 Salvo: optimized_rf_model.pkl")
+    
+    optimization_success = True
+    
+except Exception as e:
+    print(f"\n❌ Erro: {str(e)}")
+    print("   ⚠️ Usando modelo não otimizado...")
+    best_rf_model = joblib.load('best_model.pkl')
+    optimization_success = False
+
+# ----------------------------------------------------------------------------
+# Análise de Importância das Features
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("📊 ANÁLISE DE IMPORTÂNCIA DAS FEATURES")
+print("="*80)
+
+try:
+    # Extrair nomes das features
+    preprocessor.fit(X_train)
+    
+    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_cols = X_train.select_dtypes(include=['object']).columns.tolist()
+    
+    cat_feature_names = list(preprocessor.named_transformers_['cat']
+                            .named_steps['onehot']
+                            .get_feature_names_out(categorical_cols))
+    
+    feature_names = numeric_cols + cat_feature_names
+    
+    # Importâncias do Random Forest
+    rf_model = best_rf_model.named_steps['classifier']
+    importances = rf_model.feature_importances_
+    
+    # DataFrame
+    feature_importance_df = pd.DataFrame({
+        'feature': feature_names,
+        'importance': importances
+    }).sort_values('importance', ascending=False)
+    
+    print(f"\n🔝 TOP 10 FEATURES MAIS IMPORTANTES:")
+    for i, (idx, row) in enumerate(feature_importance_df.head(10).iterrows(), 1):
+        print(f"   {i:2d}. {row['feature']}: {row['importance']:.4f}")
+    
+    # Visualização Top 20
+    plt.figure(figsize=(12, 8))
+    top_20 = feature_importance_df.head(20)
+    sns.barplot(x='importance', y='feature', data=top_20, palette='viridis')
+    plt.title('Top 20 Features Mais Importantes - Random Forest', 
+              fontweight='bold', fontsize=14)
+    plt.xlabel('Importância', fontsize=12)
+    plt.ylabel('Feature', fontsize=12)
+    plt.tight_layout()
+    plt.savefig('feature_importance.png', dpi=300, bbox_inches='tight')
+    print(f"\n   ✅ Gráfico salvo: feature_importance.png")
+    plt.show()
+    
+    # Salvar DataFrame completo
+    feature_importance_df.to_csv('feature_importance.csv', index=False)
+    print(f"   ✅ CSV salvo: feature_importance.csv")
+    
+    # ----------------------------------------------------------------------------
+    # Análise de Features por Categoria
+    # ----------------------------------------------------------------------------
+    print("\n📊 IMPORTÂNCIA POR CATEGORIA DE FEATURE:")
+    
+    # Classificar features por tipo
+    feature_importance_df['category'] = 'Numérica'
+    for cat_col in categorical_cols:
+        mask = feature_importance_df['feature'].str.startswith(cat_col + '_')
+        feature_importance_df.loc[mask, 'category'] = f'Cat: {cat_col}'
+    
+    # Agrupar por categoria
+    category_importance = feature_importance_df.groupby('category')['importance'].sum().sort_values(ascending=False)
+    
+    print(f"\n   Top 5 categorias:")
+    for i, (cat, imp) in enumerate(category_importance.head().items(), 1):
+        print(f"   {i}. {cat}: {imp:.4f}")
+    
+    # Visualização
+    plt.figure(figsize=(10, 6))
+    top_cats = category_importance.head(10)
+    plt.barh(range(len(top_cats)), top_cats.values, color='coral', edgecolor='black')
+    plt.yticks(range(len(top_cats)), top_cats.index)
+    plt.xlabel('Importância Total', fontsize=12)
+    plt.title('Importância Agregada por Categoria', fontweight='bold', fontsize=14)
+    plt.tight_layout()
+    plt.savefig('category_importance.png', dpi=300, bbox_inches='tight')
+    print(f"\n   ✅ Gráfico salvo: category_importance.png")
+    plt.show()
+    
+    # ----------------------------------------------------------------------------
+    # Análise de Features Numéricas vs Categóricas
+    # ----------------------------------------------------------------------------
+    numeric_importance = feature_importance_df[feature_importance_df['category'] == 'Numérica']['importance'].sum()
+    categorical_importance = feature_importance_df[feature_importance_df['category'] != 'Numérica']['importance'].sum()
+    
+    print(f"\n📊 IMPORTÂNCIA AGREGADA:")
+    print(f"   • Features Numéricas: {numeric_importance:.4f} ({numeric_importance/(numeric_importance+categorical_importance)*100:.1f}%)")
+    print(f"   • Features Categóricas: {categorical_importance:.4f} ({categorical_importance/(numeric_importance+categorical_importance)*100:.1f}%)")
+    
+    # Gráfico de pizza
+    plt.figure(figsize=(8, 8))
+    plt.pie([numeric_importance, categorical_importance], 
+            labels=['Numéricas', 'Categóricas'],
+            autopct='%1.1f%%',
+            colors=['#3498db', '#e74c3c'],
+            startangle=90,
+            explode=(0.05, 0))
+    plt.title('Importância: Numéricas vs Categóricas', fontweight='bold', fontsize=14)
+    plt.savefig('numeric_vs_categorical.png', dpi=300, bbox_inches='tight')
+    print(f"   ✅ Gráfico salvo: numeric_vs_categorical.png")
+    plt.show()
+    
+except Exception as e:
+    print(f"\n❌ Erro na análise de features: {str(e)}")
+
+# ----------------------------------------------------------------------------
+# Resumo Final
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("✅ OTIMIZAÇÃO E ANÁLISE CONCLUÍDAS!")
+print("="*80)
+
+if optimization_success:
+    print(f"\n📊 Resumo:")
+    print(f"   • Otimização: Concluída")
+    print(f"   • Melhor F1 (CV): {random_search.best_score_:.4f}")
+    print(f"   • F1 (Teste): {test_f1:.4f}")
+    print(f"   • Top Feature: {feature_importance_df.iloc[0]['feature']}")
+else:
+    print(f"\n⚠️  Otimização não foi bem-sucedida")
+    print(f"   • Usando modelo base")
+
+print(f"\n📁 Arquivos gerados:")
+print(f"   • optimized_rf_model.pkl")
+print(f"   • feature_importance.png")
+print(f"   • feature_importance.csv")
+print(f"   • category_importance.png")
+print(f"   • numeric_vs_categorical.png")
+print("="*80)
