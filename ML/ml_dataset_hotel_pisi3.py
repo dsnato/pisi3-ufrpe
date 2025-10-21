@@ -272,3 +272,243 @@ print(f"   • Treino: {len(X_train):,}")
 print(f"   • Teste: {len(X_test):,}")
 print(f"   • Balanceamento: {y_train.mean()*100:.2f}% cancelamentos")
 print("="*80)
+
+# ============================================================================
+# TREINAMENTO DE MODELOS DE CLASSIFICAÇÃO
+# ============================================================================
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import joblib
+from sklearn.pipeline import Pipeline
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                            f1_score, confusion_matrix, classification_report)
+import xgboost as xgb
+import warnings
+warnings.filterwarnings('ignore')
+
+print("="*80)
+print("🤖 TREINAMENTO DE MODELOS DE CLASSIFICAÇÃO")
+print("="*80)
+
+# ----------------------------------------------------------------------------
+# Carregar dados pré-processados
+# ----------------------------------------------------------------------------
+print("\n📂 Carregando dados pré-processados...")
+
+X_train = joblib.load('X_train.pkl')
+X_test = joblib.load('X_test.pkl')
+y_train = joblib.load('y_train.pkl')
+y_test = joblib.load('y_test.pkl')
+preprocessor = joblib.load('preprocessor.pkl')
+
+print(f"   ✅ Treino: {X_train.shape[0]:,} amostras")
+print(f"   ✅ Teste: {X_test.shape[0]:,} amostras")
+
+# ----------------------------------------------------------------------------
+# Definir Modelos
+# ----------------------------------------------------------------------------
+print("\n📋 Definindo modelos...")
+
+models = {
+    'Logistic Regression': LogisticRegression(random_state=42, max_iter=1000),
+    'Random Forest': RandomForestClassifier(random_state=42, n_estimators=100, n_jobs=1),
+    'Gradient Boosting': GradientBoostingClassifier(random_state=42, n_estimators=100),
+    'XGBoost': xgb.XGBClassifier(random_state=42, use_label_encoder=False, 
+                                  eval_metric='logloss', n_jobs=1)
+}
+
+print(f"   Total de modelos: {len(models)}")
+for name in models.keys():
+    print(f"      • {name}")
+
+# ----------------------------------------------------------------------------
+# Treinar e Avaliar Modelos
+# ----------------------------------------------------------------------------
+print("\n🔍 Treinando modelos...")
+print("   ⏱️ Estimativa: 5-10 minutos\n")
+
+results = {}
+
+for idx, (name, model) in enumerate(models.items(), 1):
+    print(f"   [{idx}/{len(models)}] {name}...")
+    
+    try:
+        # Criar pipeline
+        pipeline = Pipeline(steps=[
+            ('preprocessor', preprocessor),
+            ('classifier', model)
+        ])
+        
+        # Treinar
+        pipeline.fit(X_train, y_train)
+        
+        # Prever
+        y_pred = pipeline.predict(X_test)
+        y_pred_proba = pipeline.predict_proba(X_test)[:, 1]
+        
+        # Métricas
+        accuracy = accuracy_score(y_test, y_pred)
+        precision = precision_score(y_test, y_pred)
+        recall = recall_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred)
+        
+        # Armazenar
+        results[name] = {
+            'model': pipeline,
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'y_pred': y_pred,
+            'y_pred_proba': y_pred_proba
+        }
+        
+        print(f"      ✅ Acurácia: {accuracy:.4f} | F1: {f1:.4f}")
+        
+    except Exception as e:
+        print(f"      ❌ Erro: {str(e)}")
+        continue
+
+print(f"\n   ✅ {len(results)} modelos treinados com sucesso!")
+
+# ----------------------------------------------------------------------------
+# Comparação de Resultados
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("📊 COMPARAÇÃO DE MODELOS")
+print("="*80)
+
+results_df = pd.DataFrame({
+    'Modelo': list(results.keys()),
+    'Acurácia': [results[name]['accuracy'] for name in results],
+    'Precisão': [results[name]['precision'] for name in results],
+    'Recall': [results[name]['recall'] for name in results],
+    'F1-Score': [results[name]['f1'] for name in results]
+}).sort_values('F1-Score', ascending=False)
+
+print("\n📊 MÉTRICAS DE DESEMPENHO:")
+from IPython.display import display
+display(results_df)
+
+# Identificar melhor modelo
+best_model_name = results_df.iloc[0]['Modelo']
+best_f1 = results_df.iloc[0]['F1-Score']
+
+print(f"\n🎯 MELHOR MODELO: {best_model_name}")
+print(f"   F1-Score: {best_f1:.4f}")
+
+# ----------------------------------------------------------------------------
+# Análise Detalhada do Melhor Modelo
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print(f"🔍 ANÁLISE DETALHADA: {best_model_name}")
+print("="*80)
+
+y_pred_best = results[best_model_name]['y_pred']
+
+# Matriz de Confusão
+cm = confusion_matrix(y_test, y_pred_best)
+print("\n📋 MATRIZ DE CONFUSÃO:")
+print(cm)
+print(f"\n   Verdadeiros Negativos: {cm[0,0]:,}")
+print(f"   Falsos Positivos: {cm[0,1]:,}")
+print(f"   Falsos Negativos: {cm[1,0]:,}")
+print(f"   Verdadeiros Positivos: {cm[1,1]:,}")
+
+# Visualizar matriz de confusão
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+            xticklabels=['Não Cancelado', 'Cancelado'],
+            yticklabels=['Não Cancelado', 'Cancelado'])
+plt.title(f'Matriz de Confusão - {best_model_name}', fontweight='bold', fontsize=14)
+plt.ylabel('Valor Real')
+plt.xlabel('Valor Previsto')
+plt.tight_layout()
+plt.savefig('confusion_matrix.png', dpi=300, bbox_inches='tight')
+print("\n   ✅ Gráfico salvo: confusion_matrix.png")
+plt.show()
+
+# Relatório de Classificação
+print("\n📊 RELATÓRIO DE CLASSIFICAÇÃO:")
+print(classification_report(y_test, y_pred_best, 
+                          target_names=['Não Cancelado', 'Cancelado']))
+
+# ----------------------------------------------------------------------------
+# Comparação Visual dos Modelos
+# ----------------------------------------------------------------------------
+print("\n📈 Criando comparação visual...")
+
+fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+
+# Acurácia
+axes[0, 0].barh(results_df['Modelo'], results_df['Acurácia'], color='skyblue', edgecolor='black')
+axes[0, 0].set_xlabel('Acurácia')
+axes[0, 0].set_title('Acurácia por Modelo', fontweight='bold')
+axes[0, 0].set_xlim(0, 1)
+
+# Precisão
+axes[0, 1].barh(results_df['Modelo'], results_df['Precisão'], color='lightgreen', edgecolor='black')
+axes[0, 1].set_xlabel('Precisão')
+axes[0, 1].set_title('Precisão por Modelo', fontweight='bold')
+axes[0, 1].set_xlim(0, 1)
+
+# Recall
+axes[1, 0].barh(results_df['Modelo'], results_df['Recall'], color='salmon', edgecolor='black')
+axes[1, 0].set_xlabel('Recall')
+axes[1, 0].set_title('Recall por Modelo', fontweight='bold')
+axes[1, 0].set_xlim(0, 1)
+
+# F1-Score
+axes[1, 1].barh(results_df['Modelo'], results_df['F1-Score'], color='gold', edgecolor='black')
+axes[1, 1].set_xlabel('F1-Score')
+axes[1, 1].set_title('F1-Score por Modelo', fontweight='bold')
+axes[1, 1].set_xlim(0, 1)
+
+plt.tight_layout()
+plt.savefig('model_comparison.png', dpi=300, bbox_inches='tight')
+print("   ✅ Gráfico salvo: model_comparison.png")
+plt.show()
+
+# ----------------------------------------------------------------------------
+# Salvar Resultados
+# ----------------------------------------------------------------------------
+print("\n💾 Salvando resultados...")
+
+# Salvar todos os modelos
+for name, data in results.items():
+    filename = f"model_{name.lower().replace(' ', '_')}.pkl"
+    joblib.dump(data['model'], filename)
+    print(f"   ✅ {filename}")
+
+# Salvar melhor modelo separadamente
+joblib.dump(results[best_model_name]['model'], 'best_model.pkl')
+print(f"   ✅ best_model.pkl")
+
+# Salvar DataFrame de resultados
+results_df.to_csv('model_results.csv', index=False)
+print(f"   ✅ model_results.csv")
+
+# Salvar previsões do melhor modelo
+predictions_df = pd.DataFrame({
+    'y_true': y_test,
+    'y_pred': y_pred_best,
+    'y_pred_proba': results[best_model_name]['y_pred_proba']
+})
+predictions_df.to_csv('best_model_predictions.csv', index=False)
+print(f"   ✅ best_model_predictions.csv")
+
+print("\n" + "="*80)
+print("✅ TREINAMENTO DE MODELOS CONCLUÍDO!")
+print("="*80)
+print(f"\n📊 Resumo:")
+print(f"   • Modelos treinados: {len(results)}")
+print(f"   • Melhor modelo: {best_model_name}")
+print(f"   • Melhor F1-Score: {best_f1:.4f}")
+print(f"   • Arquivos salvos: {len(results) + 4}")
+print("="*80)
+
