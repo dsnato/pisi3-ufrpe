@@ -231,3 +231,176 @@ plt.show()
 print("\n" + "="*80)
 print("✅ ANÁLISE DE QUALIDADE CONCLUÍDA!")
 print("="*80)
+
+# ============================================================================
+# ANÁLISE TARGET E PADRÕES TEMPORAIS
+# ============================================================================
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+warnings.filterwarnings('ignore')
+
+plt.style.use('ggplot')
+sns.set_palette("husl")
+
+df = pd.read_parquet("hotel_bookings.parquet")
+print(f"✅ Dataset carregado: {df.shape[0]:,} linhas\n")
+
+# ----------------------------------------------------------------------------
+# Análise da Variável Target (is_canceled)
+# ----------------------------------------------------------------------------
+print("="*80)
+print("ANÁLISE DA VARIÁVEL TARGET: is_canceled")
+print("="*80)
+
+cancel_counts = df['is_canceled'].value_counts()
+cancel_rate = df['is_canceled'].mean() * 100
+
+print(f"\n📊 DISTRIBUIÇÃO:")
+print(f"   Não Cancelado: {cancel_counts[0]:,} ({(cancel_counts[0]/len(df)*100):.2f}%)")
+print(f"   Cancelado: {cancel_counts[1]:,} ({(cancel_counts[1]/len(df)*100):.2f}%)")
+print(f"\n🎯 Taxa Geral: {cancel_rate:.2f}%")
+
+# Visualização
+fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+
+axes[0].bar(['Não Cancelado', 'Cancelado'], cancel_counts.values, 
+            color=['#2ecc71', '#e74c3c'], alpha=0.7, edgecolor='black')
+axes[0].set_title('Distribuição de Cancelamentos', fontweight='bold', fontsize=14)
+axes[0].set_ylabel('Número de Reservas', fontsize=12)
+
+for i, v in enumerate(cancel_counts.values):
+    axes[0].text(i, v + 1000, f'{v:,}\n({v/len(df)*100:.1f}%)', 
+                ha='center', va='bottom', fontweight='bold')
+
+cancel_by_hotel = df.groupby('hotel')['is_canceled'].mean() * 100
+axes[1].bar(cancel_by_hotel.index, cancel_by_hotel.values, 
+           color=['#3498db', '#9b59b6'], alpha=0.7, edgecolor='black')
+axes[1].set_title('Taxa de Cancelamento por Tipo de Hotel', fontweight='bold', fontsize=14)
+axes[1].set_ylabel('Taxa de Cancelamento (%)', fontsize=12)
+
+for i, (hotel, rate) in enumerate(cancel_by_hotel.items()):
+    axes[1].text(i, rate + 1, f'{rate:.2f}%', ha='center', va='bottom', fontweight='bold')
+
+plt.tight_layout()
+plt.show()
+
+print(f"\n🏨 POR TIPO DE HOTEL:")
+for hotel, rate in cancel_by_hotel.items():
+    print(f"   {hotel}: {rate:.2f}%")
+
+# ----------------------------------------------------------------------------
+# Preparação de Dados Temporais
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("ANÁLISE TEMPORAL")
+print("="*80)
+
+df['arrival_date'] = pd.to_datetime(
+    df['arrival_date_year'].astype(str) + '-' +
+    df['arrival_date_month'] + '-' +
+    df['arrival_date_day_of_month'].astype(str),
+    errors='coerce'
+)
+
+print(f"✅ Coluna de data criada!")
+print(f"   Período: {df['arrival_date'].min()} a {df['arrival_date'].max()}")
+
+# ----------------------------------------------------------------------------
+# Reservas ao Longo do Tempo
+# ----------------------------------------------------------------------------
+month_order = ['January', 'February', 'March', 'April', 'May', 'June',
+               'July', 'August', 'September', 'October', 'November', 'December']
+
+monthly_bookings = df.groupby(['arrival_date_year', 'arrival_date_month']).size().unstack(0)
+monthly_bookings = monthly_bookings.reindex(month_order)
+
+fig, ax = plt.subplots(figsize=(15, 6))
+monthly_bookings.plot(kind='bar', ax=ax, width=0.8)
+ax.set_title('Reservas por Mês e Ano', fontweight='bold', fontsize=14)
+ax.set_xlabel('Mês', fontsize=12)
+ax.set_ylabel('Número de Reservas', fontsize=12)
+ax.legend(title='Ano')
+ax.grid(axis='y', alpha=0.3)
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
+plt.show()
+
+monthly_total = monthly_bookings.sum(axis=1)
+print(f"\n📊 Maior demanda: {monthly_total.idxmax()} ({monthly_total.max():,})")
+print(f"   Menor demanda: {monthly_total.idxmin()} ({monthly_total.min():,})")
+
+# ----------------------------------------------------------------------------
+# Taxa de Cancelamento Mensal
+# ----------------------------------------------------------------------------
+monthly_cancel = df.groupby('arrival_date_month')['is_canceled'].mean() * 100
+monthly_cancel = monthly_cancel.reindex(month_order)
+
+fig, ax = plt.subplots(figsize=(14, 6))
+ax.plot(range(len(monthly_cancel)), monthly_cancel.values, 
+        marker='o', linewidth=2.5, markersize=8, color='#e74c3c')
+ax.set_xticks(range(len(monthly_cancel)))
+ax.set_xticklabels(monthly_cancel.index, rotation=45, ha='right')
+ax.set_title('Taxa de Cancelamento por Mês', fontweight='bold', fontsize=14)
+ax.set_ylabel('Taxa de Cancelamento (%)', fontsize=12)
+ax.grid(True, alpha=0.3)
+
+mean_cancel = monthly_cancel.mean()
+ax.axhline(mean_cancel, color='blue', linestyle='--', linewidth=2, 
+          label=f'Média: {mean_cancel:.2f}%', alpha=0.7)
+ax.legend()
+plt.tight_layout()
+plt.show()
+
+print(f"\n📊 Maior taxa: {monthly_cancel.idxmax()} ({monthly_cancel.max():.2f}%)")
+print(f"   Menor taxa: {monthly_cancel.idxmin()} ({monthly_cancel.min():.2f}%)")
+
+# ----------------------------------------------------------------------------
+# Análise de Sazonalidade
+# ----------------------------------------------------------------------------
+def get_season(month):
+    if month in ['December', 'January', 'February']:
+        return 'Inverno'
+    elif month in ['March', 'April', 'May']:
+        return 'Primavera'
+    elif month in ['June', 'July', 'August']:
+        return 'Verão'
+    else:
+        return 'Outono'
+
+df['season'] = df['arrival_date_month'].apply(get_season)
+
+season_stats = df.groupby('season').agg({
+    'is_canceled': ['count', 'mean']
+}).round(3)
+season_stats.columns = ['total_reservas', 'taxa_cancelamento']
+season_stats['taxa_cancelamento'] = season_stats['taxa_cancelamento'] * 100
+
+print("\n📊 POR ESTAÇÃO:")
+display(season_stats.sort_values('total_reservas', ascending=False))
+
+season_order = ['Primavera', 'Verão', 'Outono', 'Inverno']
+fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+
+season_counts = df['season'].value_counts().reindex(season_order)
+axes[0].bar(season_order, season_counts.values, 
+           color=['#2ecc71', '#f39c12', '#e67e22', '#3498db'], alpha=0.7)
+axes[0].set_title('Reservas por Estação', fontweight='bold')
+axes[0].set_ylabel('Número de Reservas')
+
+season_cancel = df.groupby('season')['is_canceled'].mean() * 100
+season_cancel = season_cancel.reindex(season_order)
+axes[1].bar(season_order, season_cancel.values, 
+           color=['#2ecc71', '#f39c12', '#e67e22', '#3498db'], alpha=0.7)
+axes[1].set_title('Taxa de Cancelamento por Estação', fontweight='bold')
+axes[1].set_ylabel('Taxa (%)')
+
+plt.tight_layout()
+plt.show()
+
+print("\n" + "="*80)
+print("✅ ANÁLISE TEMPORAL CONCLUÍDA!")
+print("="*80)
