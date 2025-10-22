@@ -750,3 +750,76 @@ plt.legend(title='Tipo de Hotel')
 plt.tight_layout()
 plt.show()
 
+# ----------------------------------------------------------------------------
+# Insights e Recomendações Finais
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("INSIGHTS E RECOMENDAÇÕES FINAIS")
+print("="*80)
+
+cancel_rate = df['is_canceled'].mean() * 100
+lead_time_cancel = df[df['is_canceled'] == 1]['lead_time'].mean()
+lead_time_no_cancel = df[df['is_canceled'] == 0]['lead_time'].mean()
+adr_cancel = df[df['is_canceled'] == 1]['adr'].mean()
+adr_no_cancel = df[df['is_canceled'] == 0]['adr'].mean()
+cancel_by_hotel = df.groupby('hotel')['is_canceled'].mean() * 100
+
+print("\n" + "="*60)
+print("PRINCIPAIS DESCOBERTAS:")
+print("="*60)
+print(f"1. 📉 Taxa geral de cancelamento: {cancel_rate:.1f}%")
+print(f"2. ⏰ Reservas canceladas têm lead time maior: {lead_time_cancel:.1f} vs {lead_time_no_cancel:.1f} dias")
+print(f"3. 💰 Reservas canceladas têm ADR menor: ${adr_cancel:.2f} vs ${adr_no_cancel:.2f}")
+print(f"4. 🏨 City Hotel: {cancel_by_hotel['City Hotel']:.1f}% vs Resort: {cancel_by_hotel['Resort Hotel']:.1f}%")
+print(f"5. 📊 Lead Time é mais correlacionado com cancelamento: {correlation_matrix['is_canceled']['lead_time']:.3f}")
+
+print("\n" + "="*60)
+print("RECOMENDAÇÕES:")
+print("="*60)
+print("🎯 1. Política diferenciada para reservas com lead time > 100 dias")
+print("🎯 2. Campanhas para grupos com alta taxa de cancelamento")
+print("🎯 3. Revisar estratégia de preços para City Hotel")
+print("🎯 4. Melhorar comunicação com reservas antecipadas")
+print("🎯 5. Benefícios para reservas não canceláveis")
+
+print("\n" + "="*60)
+print("PRÓXIMOS PASSOS PARA ML:")
+print("="*60)
+print("🤖 1. Pré-processamento: Tratar valores faltantes")
+print("🤖 2. Feature Engineering: Criar variáveis derivadas")
+print("🤖 3. Encoding: One-Hot para categóricas")
+print("🤖 4. Modelagem: Random Forest, XGBoost, Logistic Regression")
+print("🤖 5. Otimização: GridSearch para hiperparâmetros")
+
+# ----------------------------------------------------------------------------
+# Salvamento de Resultados
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("SALVANDO RESULTADOS")
+print("="*80)
+
+df.to_csv('hotel_bookings_analyzed.csv', index=False)
+print("✅ Dataset salvo: hotel_bookings_analyzed.csv")
+
+summary_stats = {
+    'total_reservas': int(df.shape[0]),
+    'taxa_cancelamento': float(df['is_canceled'].mean()),
+    'lead_time_medio': float(df['lead_time'].mean()),
+    'adr_medio': float(df['adr'].mean()),
+    'hotel_counts': {k: int(v) for k, v in df['hotel'].value_counts().to_dict().items()},
+    'top_countries': {k: int(v) for k, v in df['country'].value_counts().head(5).to_dict().items()}
+}
+
+with open('analysis_summary.json', 'w', encoding='utf-8') as f:
+    json.dump(summary_stats, f, indent=4, ensure_ascii=False)
+print("✅ Resumo salvo: analysis_summary.json")
+
+print("\n" + "="*80)
+print("✅ ANÁLISE EXPLORATÓRIA COMPLETA CONCLUÍDA!")
+print("="*80)
+print("📁 Arquivos gerados:")
+print("   ├─ hotel_bookings_analyzed.csv")
+print("   ├─ analysis_summary.json")
+print("   ├─ numeric_statistics.csv")
+print("   └─ Gráficos e visualizações")
+print("="*80)
