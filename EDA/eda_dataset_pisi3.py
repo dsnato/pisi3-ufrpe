@@ -1,27 +1,35 @@
 # -*- coding: utf-8 -*-
 """
 EDA - Hotel Booking Demand Dataset
-Commit 1: Configuração Inicial e Carregamento dos Dados
+Análise Exploratória de Dados Completa
 """
 
 # ============================================================================
-# SETUP INICIAL E CARREGAMENTO DE DADOS
+# CONFIGURAÇÃO INICIAL E IMPORTAÇÕES
 # ============================================================================
 
 print("="*80)
-print("CONFIGURAÇÃO INICIAL E CARREGAMENTO DOS DADOS")
+print("🔍 ANÁLISE EXPLORATÓRIA DE DADOS - HOTEL BOOKING DEMAND")
 print("="*80)
 
 # Importação de Bibliotecas
 import os
 import zipfile
-import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from IPython.display import display
 import warnings
 warnings.filterwarnings('ignore')
+
+# Tentar importar missingno (opcional)
+try:
+    import missingno as msno
+    MISSINGNO_AVAILABLE = True
+except ImportError:
+    MISSINGNO_AVAILABLE = False
+    print("⚠️  Biblioteca 'missingno' não encontrada. Visualizações de dados faltantes serão limitadas.")
 
 # Configuração de estilo
 plt.style.use('ggplot')
@@ -29,99 +37,93 @@ sns.set_palette("husl")
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', 1000)
 
-print("✅ Bibliotecas importadas com sucesso!")
+print("\n✅ Bibliotecas importadas com sucesso!")
 
-# ----------------------------------------------------------------------------
-# Download e Descompactação do Dataset
-# ----------------------------------------------------------------------------
+# ============================================================================
+# CARREGAMENTO DO DATASET
+# ============================================================================
+
 print("\n" + "="*80)
-print("PREPARANDO DATASET")
+print("📂 CARREGAMENTO DO DATASET")
 print("="*80)
 
+# Configuração de arquivos
 zip_file_name = "hotel-booking-demand.zip"
-
-if not os.path.exists(zip_file_name):
-    print("⚠️  Arquivo não encontrado localmente.")
-    print("📥 Para baixar o dataset, execute no terminal:")
-    print("   kaggle datasets download -d jessemostipak/hotel-booking-demand")
-else:
-    print(f"✅ Arquivo '{zip_file_name}' encontrado!")
-
-# Descompactar dataset
-if os.path.exists(zip_file_name):
-    with zipfile.ZipFile(zip_file_name, 'r') as zip_ref:
-        zip_ref.extractall()
-    print("✅ Dataset descompactado com sucesso!")
-    
-    csv_files = [f for f in os.listdir() if f.endswith('.csv')]
-    csv_file_name = csv_files[0] if csv_files else "hotel_bookings.csv"
-    print(f"📄 Arquivo CSV: {csv_file_name}")
-else:
-    csv_file_name = "hotel_bookings.csv"
-
-# ----------------------------------------------------------------------------
-# Carregamento e Conversão para Parquet
-# ----------------------------------------------------------------------------
-print("\n" + "="*80)
-print("CARREGANDO DATASET")
-print("="*80)
-
+csv_file_name = "hotel_bookings.csv"
 parquet_file_name = "hotel_bookings.parquet"
 
-if os.path.exists(parquet_file_name):
-    df = pd.read_parquet(parquet_file_name)
-    print(f"✅ Dataset carregado do Parquet: {parquet_file_name}")
-elif os.path.exists(csv_file_name):
-    print(f"📊 Carregando CSV: {csv_file_name}")
-    df = pd.read_csv(csv_file_name)
-    print(f"✅ Dataset CSV carregado!")
+# Descompactar se necessário
+if os.path.exists(zip_file_name) and not os.path.exists(csv_file_name):
+    print(f"\n📦 Descompactando: {zip_file_name}")
+    with zipfile.ZipFile(zip_file_name, 'r') as zip_ref:
+        zip_ref.extractall()
+    print("✅ Dataset descompactado!")
     
-    df.to_parquet(parquet_file_name, index=False)
-    print(f"💾 Dataset salvo em Parquet: {parquet_file_name}")
-else:
-    raise FileNotFoundError(f"❌ Arquivo não encontrado: {parquet_file_name} ou {csv_file_name}")
+    # Descobrir nome do arquivo CSV
+    csv_files = [f for f in os.listdir() if f.endswith('.csv')]
+    if csv_files:
+        csv_file_name = csv_files[0]
+        print(f"📄 Arquivo CSV encontrado: {csv_file_name}")
 
-# ----------------------------------------------------------------------------
-# Visão Geral do Dataset
-# ----------------------------------------------------------------------------
+# Carregar dataset (prioriza Parquet por ser mais rápido)
+if os.path.exists(parquet_file_name):
+    print(f"\n📊 Carregando do Parquet...")
+    df = pd.read_parquet(parquet_file_name)
+    print(f"✅ Dataset carregado: {parquet_file_name}")
+elif os.path.exists(csv_file_name):
+    print(f"\n📊 Carregando do CSV...")
+    df = pd.read_csv(csv_file_name)
+    print(f"✅ Dataset CSV carregado: {csv_file_name}")
+    
+    # Salvar em Parquet para futuros carregamentos
+    print(f"💾 Salvando em Parquet para otimização...")
+    df.to_parquet(parquet_file_name, index=False)
+    print(f"✅ Salvo: {parquet_file_name}")
+else:
+    raise FileNotFoundError(
+        f"❌ Dataset não encontrado!\n"
+        f"   Procurados: {parquet_file_name}, {csv_file_name}\n"
+        f"   Para baixar: kaggle datasets download -d jessemostipak/hotel-booking-demand"
+    )
+
+# Informações básicas
+print(f"\n📊 DIMENSÕES DO DATASET:")
+print(f"   • Linhas: {df.shape[0]:,}")
+print(f"   • Colunas: {df.shape[1]}")
+print(f"   • Memória: {df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
+# ============================================================================
+# VISÃO GERAL E INFORMAÇÕES DO DATASET
+# ============================================================================
+
 print("\n" + "="*80)
-print("VISÃO GERAL DO DATASET")
+print("� INFORMAÇÕES DO DATASET")
 print("="*80)
 
-print(f"\n📊 DIMENSÕES:")
-print(f"   Linhas: {df.shape[0]:,}")
-print(f"   Colunas: {df.shape[1]}")
-
-print("\n👀 PRIMEIRAS 5 LINHAS:")
-display(df.head())
-
-print("\n📋 ÚLTIMAS 5 LINHAS:")
-display(df.tail())
-
-print("\n🔍 INFORMAÇÕES GERAIS:")
+print("\n🔍 ESTRUTURA:")
 df.info()
 
-print("\n📝 COLUNAS DO DATASET:")
+print("\n📝 COLUNAS:")
 for i, col in enumerate(df.columns, 1):
     print(f"   {i:2d}. {col}")
 
+print("\n👀 PRIMEIRAS 5 LINHAS:")
+print(df.head())
+
+print("\n📊 ÚLTIMAS 5 LINHAS:")
+print(df.tail())
+
+# ============================================================================
+# ANÁLISE DE QUALIDADE DOS DADOS
+# ============================================================================
+
 print("\n" + "="*80)
-print("✅ CONFIGURAÇÃO CONCLUÍDA!")
+print("🔍 ANÁLISE DE QUALIDADE DOS DADOS")
 print("="*80)
 
-plt.style.use('ggplot')
-sns.set_palette("husl")
-
-# Carregar dataset
-df = pd.read_parquet("hotel_bookings.parquet")
-print(f"✅ Dataset carregado: {df.shape[0]:,} linhas × {df.shape[1]} colunas\n")
-
-# ----------------------------------------------------------------------------
-# Análise de Valores Faltantes
-# ----------------------------------------------------------------------------
-print("="*80)
-print("ANÁLISE DE VALORES FALTANTES")
-print("="*80)
+# ----------------------------
+# 1. Valores Faltantes
+# ----------------------------
+print("\n📊 VALORES FALTANTES:")
 
 missing_data = df.isnull().sum().sort_values(ascending=False)
 missing_percent = (df.isnull().sum() / df.shape[0] * 100).sort_values(ascending=False)
@@ -134,48 +136,50 @@ missing_df = pd.DataFrame({
 missing_with_nulls = missing_df[missing_df['Valores Faltantes'] > 0]
 
 if len(missing_with_nulls) > 0:
-    print("\n📊 COLUNAS COM VALORES FALTANTES:")
+    print("\n   Colunas com valores faltantes:")
     display(missing_with_nulls)
+    
+    # Visualização matricial (se missingno disponível)
+    if MISSINGNO_AVAILABLE:
+        plt.figure(figsize=(12, 6))
+        msno.matrix(df, fontsize=10)
+        plt.title('Matriz de Valores Faltantes', fontsize=16, fontweight='bold')
+        plt.tight_layout()
+        plt.show()
+        
+        # Heatmap de correlação
+        if len(missing_with_nulls) > 1:
+            plt.figure(figsize=(10, 6))
+            msno.heatmap(df, fontsize=10)
+            plt.title('Correlação entre Valores Faltantes', fontsize=16, fontweight='bold')
+            plt.tight_layout()
+            plt.show()
 else:
     print("\n✅ Nenhum valor faltante encontrado!")
 
-# Visualização matricial
-plt.figure(figsize=(12, 6))
-msno.matrix(df, fontsize=10)
-plt.title('Matriz de Valores Faltantes', fontsize=16, fontweight='bold')
-plt.tight_layout()
-plt.show()
-
-# Heatmap de correlação
-if len(missing_with_nulls) > 1:
-    plt.figure(figsize=(10, 6))
-    msno.heatmap(df, fontsize=10)
-    plt.title('Correlação entre Valores Faltantes', fontsize=16, fontweight='bold')
-    plt.tight_layout()
-    plt.show()
-
-# ----------------------------------------------------------------------------
-# Estatísticas Descritivas - Numéricas
-# ----------------------------------------------------------------------------
+# ----------------------------
+# 2. Estatísticas Descritivas - Numéricas
+# ----------------------------
 print("\n" + "="*80)
-print("ESTATÍSTICAS DESCRITIVAS - VARIÁVEIS NUMÉRICAS")
+print("📊 ESTATÍSTICAS DESCRITIVAS - VARIÁVEIS NUMÉRICAS")
 print("="*80)
 
 numeric_stats = df.describe().T
 numeric_stats['missing'] = missing_data
 numeric_stats['missing_pct'] = missing_percent
 
-print("\n📊 RESUMO ESTATÍSTICO:")
+print("\n� Resumo Estatístico:")
 display(numeric_stats)
 
+# Salvar estatísticas
 numeric_stats.to_csv('numeric_statistics.csv')
 print("\n💾 Estatísticas salvas em: numeric_statistics.csv")
 
-# ----------------------------------------------------------------------------
-# Estatísticas Descritivas - Categóricas
-# ----------------------------------------------------------------------------
+# ----------------------------
+# 3. Estatísticas Descritivas - Categóricas
+# ----------------------------
 print("\n" + "="*80)
-print("ESTATÍSTICAS DESCRITIVAS - VARIÁVEIS CATEGÓRICAS")
+print("📊 ESTATÍSTICAS DESCRITIVAS - VARIÁVEIS CATEGÓRICAS")
 print("="*80)
 
 categorical_cols = df.select_dtypes(include=['object']).columns
@@ -189,19 +193,19 @@ for col in categorical_cols:
     value_counts = df[col].value_counts()
     total = len(df)
     
-    print(f"   Categorias únicas: {df[col].nunique()}")
-    print(f"   Valores faltantes: {df[col].isnull().sum()} ({df[col].isnull().sum()/total*100:.2f}%)")
+    print(f"   • Categorias únicas: {df[col].nunique()}")
+    print(f"   • Valores faltantes: {df[col].isnull().sum()} ({df[col].isnull().sum()/total*100:.2f}%)")
     print(f"\n   Top 5 valores:")
     
     for idx, (value, count) in enumerate(value_counts.head().items(), 1):
         percentage = (count / total) * 100
         print(f"      {idx}. {value}: {count:,} ({percentage:.2f}%)")
 
-# ----------------------------------------------------------------------------
-# Detecção de Outliers
-# ----------------------------------------------------------------------------
+# ----------------------------
+# 4. Detecção de Outliers
+# ----------------------------
 print("\n" + "="*80)
-print("DETECÇÃO DE OUTLIERS")
+print("🔍 DETECÇÃO DE OUTLIERS")
 print("="*80)
 
 key_vars = ['lead_time', 'adr', 'stays_in_weekend_nights', 
@@ -228,41 +232,24 @@ for idx, col in enumerate(key_vars[:8]):
 plt.tight_layout()
 plt.show()
 
+print("\n✅ Análise de qualidade concluída!")
+
+# ============================================================================
+# ANÁLISE DA VARIÁVEL TARGET E PADRÕES TEMPORAIS
+# ============================================================================
+
 print("\n" + "="*80)
-print("✅ ANÁLISE DE QUALIDADE CONCLUÍDA!")
+print("🎯 ANÁLISE DA VARIÁVEL TARGET: is_canceled")
 print("="*80)
 
-# ============================================================================
-# ANÁLISE TARGET E PADRÕES TEMPORAIS
-# ============================================================================
-
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import warnings
-warnings.filterwarnings('ignore')
-
-plt.style.use('ggplot')
-sns.set_palette("husl")
-
-df = pd.read_parquet("hotel_bookings.parquet")
-print(f"✅ Dataset carregado: {df.shape[0]:,} linhas\n")
-
-# ----------------------------------------------------------------------------
-# Análise da Variável Target (is_canceled)
-# ----------------------------------------------------------------------------
-print("="*80)
-print("ANÁLISE DA VARIÁVEL TARGET: is_canceled")
-print("="*80)
 
 cancel_counts = df['is_canceled'].value_counts()
 cancel_rate = df['is_canceled'].mean() * 100
 
 print(f"\n📊 DISTRIBUIÇÃO:")
-print(f"   Não Cancelado: {cancel_counts[0]:,} ({(cancel_counts[0]/len(df)*100):.2f}%)")
-print(f"   Cancelado: {cancel_counts[1]:,} ({(cancel_counts[1]/len(df)*100):.2f}%)")
-print(f"\n🎯 Taxa Geral: {cancel_rate:.2f}%")
+print(f"   • Não Cancelado: {cancel_counts[0]:,} ({(cancel_counts[0]/len(df)*100):.2f}%)")
+print(f"   • Cancelado: {cancel_counts[1]:,} ({(cancel_counts[1]/len(df)*100):.2f}%)")
+print(f"\n🎯 Taxa Geral de Cancelamento: {cancel_rate:.2f}%")
 
 # Visualização
 fig, axes = plt.subplots(1, 2, figsize=(15, 5))
@@ -290,15 +277,17 @@ plt.show()
 
 print(f"\n🏨 POR TIPO DE HOTEL:")
 for hotel, rate in cancel_by_hotel.items():
-    print(f"   {hotel}: {rate:.2f}%")
+    print(f"   • {hotel}: {rate:.2f}%")
 
-# ----------------------------------------------------------------------------
-# Preparação de Dados Temporais
-# ----------------------------------------------------------------------------
+# ============================================================================
+# ANÁLISE TEMPORAL
+# ============================================================================
+
 print("\n" + "="*80)
-print("ANÁLISE TEMPORAL")
+print("📅 ANÁLISE TEMPORAL")
 print("="*80)
 
+# Criar coluna de data
 df['arrival_date'] = pd.to_datetime(
     df['arrival_date_year'].astype(str) + '-' +
     df['arrival_date_month'] + '-' +
@@ -306,12 +295,14 @@ df['arrival_date'] = pd.to_datetime(
     errors='coerce'
 )
 
-print(f"✅ Coluna de data criada!")
-print(f"   Período: {df['arrival_date'].min()} a {df['arrival_date'].max()}")
+print(f"\n✅ Coluna de data criada!")
+print(f"   • Período: {df['arrival_date'].min()} a {df['arrival_date'].max()}")
 
-# ----------------------------------------------------------------------------
+# ----------------------------
 # Reservas ao Longo do Tempo
-# ----------------------------------------------------------------------------
+# ----------------------------
+print("\n📊 RESERVAS AO LONGO DO TEMPO:")
+
 month_order = ['January', 'February', 'March', 'April', 'May', 'June',
                'July', 'August', 'September', 'October', 'November', 'December']
 
@@ -330,12 +321,14 @@ plt.tight_layout()
 plt.show()
 
 monthly_total = monthly_bookings.sum(axis=1)
-print(f"\n📊 Maior demanda: {monthly_total.idxmax()} ({monthly_total.max():,})")
-print(f"   Menor demanda: {monthly_total.idxmin()} ({monthly_total.min():,})")
+print(f"\n   • Maior demanda: {monthly_total.idxmax()} ({monthly_total.max():,} reservas)")
+print(f"   • Menor demanda: {monthly_total.idxmin()} ({monthly_total.min():,} reservas)")
 
-# ----------------------------------------------------------------------------
+# ----------------------------
 # Taxa de Cancelamento Mensal
-# ----------------------------------------------------------------------------
+# ----------------------------
+print("\n📊 TAXA DE CANCELAMENTO MENSAL:")
+
 monthly_cancel = df.groupby('arrival_date_month')['is_canceled'].mean() * 100
 monthly_cancel = monthly_cancel.reindex(month_order)
 
@@ -355,12 +348,14 @@ ax.legend()
 plt.tight_layout()
 plt.show()
 
-print(f"\n📊 Maior taxa: {monthly_cancel.idxmax()} ({monthly_cancel.max():.2f}%)")
-print(f"   Menor taxa: {monthly_cancel.idxmin()} ({monthly_cancel.min():.2f}%)")
+print(f"\n   • Maior taxa: {monthly_cancel.idxmax()} ({monthly_cancel.max():.2f}%)")
+print(f"   • Menor taxa: {monthly_cancel.idxmin()} ({monthly_cancel.min():.2f}%)")
 
-# ----------------------------------------------------------------------------
+# ----------------------------
 # Análise de Sazonalidade
-# ----------------------------------------------------------------------------
+# ----------------------------
+print("\n📊 ANÁLISE DE SAZONALIDADE:")
+
 def get_season(month):
     if month in ['December', 'January', 'February']:
         return 'Inverno'
@@ -379,7 +374,7 @@ season_stats = df.groupby('season').agg({
 season_stats.columns = ['total_reservas', 'taxa_cancelamento']
 season_stats['taxa_cancelamento'] = season_stats['taxa_cancelamento'] * 100
 
-print("\n📊 POR ESTAÇÃO:")
+print("\n   Por estação:")
 display(season_stats.sort_values('total_reservas', ascending=False))
 
 season_order = ['Primavera', 'Verão', 'Outono', 'Inverno']
@@ -401,34 +396,20 @@ axes[1].set_ylabel('Taxa (%)')
 plt.tight_layout()
 plt.show()
 
-print("\n" + "="*80)
-print("✅ ANÁLISE TEMPORAL CONCLUÍDA!")
-print("="*80)
+print("\n✅ Análise temporal concluída!")
 
 # ============================================================================
 # ANÁLISE GEOGRÁFICA E FINANCEIRA
 # ============================================================================
 
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import warnings
-warnings.filterwarnings('ignore')
-
-plt.style.use('ggplot')
-sns.set_palette("husl")
-
-df = pd.read_parquet("hotel_bookings.parquet")
-print(f"✅ Dataset carregado: {df.shape[0]:,} linhas\n")
-
-# ----------------------------------------------------------------------------
-# Análise Geográfica
-# ----------------------------------------------------------------------------
-print("="*80)
-print("ANÁLISE GEOGRÁFICA - DISTRIBUIÇÃO POR PAÍSES")
+print("\n" + "="*80)
+print("🌍 ANÁLISE GEOGRÁFICA")
 print("="*80)
 
+
+# ----------------------------
+# Distribuição por Países
+# ----------------------------
 country_counts = df['country'].value_counts().head(10)
 
 plt.figure(figsize=(12, 6))
@@ -466,11 +447,12 @@ print("\n📊 MAIORES TAXAS DE CANCELAMENTO (países com >100 reservas):")
 for i, (country, row) in enumerate(top_cancel_countries.iterrows(), 1):
     print(f"   {i:2d}. {country}: {row['taxa_cancelamento']:.3f}")
 
-# ----------------------------------------------------------------------------
-# Análise de Preços (ADR)
-# ----------------------------------------------------------------------------
+# ============================================================================
+# ANÁLISE FINANCEIRA (ADR - Average Daily Rate)
+# ============================================================================
+
 print("\n" + "="*80)
-print("ANÁLISE DE PREÇOS (ADR - Average Daily Rate)")
+print("💰 ANÁLISE DE PREÇOS (ADR - Average Daily Rate)")
 print("="*80)
 
 month_order = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -512,25 +494,26 @@ plt.show()
 df_clean = df[df['adr'] < 1000]
 
 print(f"\n📊 ESTATÍSTICAS DO ADR (sem outliers extremos):")
-print(f"   Média: ${df_clean['adr'].mean():.2f}")
-print(f"   Mediana: ${df_clean['adr'].median():.2f}")
-print(f"   Máximo: ${df_clean['adr'].max():.2f}")
-print(f"   Mínimo: ${df_clean['adr'].min():.2f}")
+print(f"   • Média: ${df_clean['adr'].mean():.2f}")
+print(f"   • Mediana: ${df_clean['adr'].median():.2f}")
+print(f"   • Máximo: ${df_clean['adr'].max():.2f}")
+print(f"   • Mínimo: ${df_clean['adr'].min():.2f}")
 
 # ADR por cancelamento
 adr_cancel = df[df['is_canceled'] == 1]['adr'].mean()
 adr_no_cancel = df[df['is_canceled'] == 0]['adr'].mean()
 
 print(f"\n📊 ADR POR STATUS:")
-print(f"   Cancelado: ${adr_cancel:.2f}")
-print(f"   Não Cancelado: ${adr_no_cancel:.2f}")
-print(f"   Diferença: ${abs(adr_cancel - adr_no_cancel):.2f}")
+print(f"   • Cancelado: ${adr_cancel:.2f}")
+print(f"   • Não Cancelado: ${adr_no_cancel:.2f}")
+print(f"   • Diferença: ${abs(adr_cancel - adr_no_cancel):.2f}")
 
-# ----------------------------------------------------------------------------
-# Análise de Lead Time
-# ----------------------------------------------------------------------------
+# ============================================================================
+# ANÁLISE DE LEAD TIME (ANTECEDÊNCIA DA RESERVA)
+# ============================================================================
+
 print("\n" + "="*80)
-print("ANÁLISE DE LEAD TIME (ANTECEDÊNCIA DA RESERVA)")
+print("⏰ ANÁLISE DE LEAD TIME (ANTECEDÊNCIA DA RESERVA)")
 print("="*80)
 
 fig, axes = plt.subplots(1, 2, figsize=(15, 5))
@@ -556,20 +539,21 @@ lead_time_cancel = df[df['is_canceled'] == 1]['lead_time'].mean()
 lead_time_no_cancel = df[df['is_canceled'] == 0]['lead_time'].mean()
 
 print(f"\n📊 ESTATÍSTICAS DE LEAD TIME:")
-print(f"   Média Geral: {lead_time_mean:.1f} dias")
-print(f"   Cancelamentos: {lead_time_cancel:.1f} dias")
-print(f"   Não Cancelamentos: {lead_time_no_cancel:.1f} dias")
-print(f"   Diferença: {abs(lead_time_cancel - lead_time_no_cancel):.1f} dias")
+print(f"   • Média Geral: {lead_time_mean:.1f} dias")
+print(f"   • Cancelamentos: {lead_time_cancel:.1f} dias")
+print(f"   • Não Cancelamentos: {lead_time_no_cancel:.1f} dias")
+print(f"   • Diferença: {abs(lead_time_cancel - lead_time_no_cancel):.1f} dias")
 
 # Correlação
 correlation = df['lead_time'].corr(df['is_canceled'])
 print(f"\n📈 Correlação Lead Time vs Cancelamento: {correlation:.3f}")
 
-# ----------------------------------------------------------------------------
-# Lead Time vs ADR vs Cancelamento
-# ----------------------------------------------------------------------------
+# ============================================================================
+# ANÁLISE MULTIVARIADA
+# ============================================================================
+
 print("\n" + "="*80)
-print("ANÁLISE MULTIVARIADA: LEAD TIME VS ADR VS CANCELAMENTO")
+print("🔗 ANÁLISE MULTIVARIADA: LEAD TIME VS ADR VS CANCELAMENTO")
 print("="*80)
 
 df_plot = df[df['adr'] < 1000].copy()
@@ -586,6 +570,17 @@ plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
 
+# ============================================================================
+# FINALIZAÇÃO
+# ============================================================================
+
 print("\n" + "="*80)
-print("✅ ANÁLISE GEOGRÁFICA E FINANCEIRA CONCLUÍDA!")
+print("✅ ANÁLISE EXPLORATÓRIA DE DADOS CONCLUÍDA COM SUCESSO!")
 print("="*80)
+print(f"\n📊 Resumo da Análise:")
+print(f"   • Total de registros analisados: {len(df):,}")
+print(f"   • Taxa de cancelamento: {df['is_canceled'].mean()*100:.2f}%")
+print(f"   • Período: {df['arrival_date'].min()} a {df['arrival_date'].max()}")
+print(f"   • ADR médio: ${df['adr'].mean():.2f}")
+print(f"   • Lead time médio: {df['lead_time'].mean():.1f} dias")
+print("\n" + "="*80)
