@@ -1316,6 +1316,160 @@ except Exception as e:
     X_pca = None # Set X_pca to None to avoid NameError in layout
     clusters = None # Set clusters to None to avoid NameError in layout
 
+"""# CALLBACKS DO DASHBOARD"""
+
+# Callbacks para a aba de Análise de Cancelamentos
+@app.callback(
+    [Output('cancel-rate', 'children'),
+     Output('total-bookings', 'children'),
+     Output('avg-adr', 'children'),
+     Output('cancel-by-segment', 'figure'),
+     Output('cancel-by-month', 'figure'),
+     Output('cancel-by-customer-type', 'figure')],
+    [Input('hotel-filter', 'value'),
+     Input('country-filter', 'value')]
+)
+def update_cancel_analysis(hotel_filter, country_filter):
+    # Filtrar dados
+    filtered_df = df.copy()
+
+    if hotel_filter != 'all':
+        filtered_df = filtered_df[filtered_df['hotel'] == hotel_filter]
+
+    if country_filter != 'all':
+        filtered_df = filtered_df[filtered_df['country'] == country_filter]
+
+    # Calcular métricas
+    cancel_rate = f"{filtered_df['is_canceled'].mean()*100:.1f}%"
+    total_bookings = f"{filtered_df.shape[0]:,}"
+    avg_adr = f"${filtered_df['adr'].mean():.2f}"
+
+    # Gráficos
+    cancel_by_segment = px.bar(
+        filtered_df.groupby('market_segment')['is_canceled'].mean().reset_index(),
+        x='market_segment', y='is_canceled',
+        title='Taxa de Cancelamento por Segmento de Mercado',
+        labels={'market_segment': 'Segmento', 'is_canceled': 'Taxa de Cancelamento'},
+        color='is_canceled',
+        color_continuous_scale=[[0, COLORS['secondary']], [1, COLORS['accent']]]
+    ).update_layout(
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['white'],
+        font_color=COLORS['dark'],
+        title_font_color=COLORS['dark']
+    )
+
+    monthly_cancel = filtered_df.groupby('arrival_date_month')['is_canceled'].mean().reset_index()
+    month_order = ['January', 'February', 'March', 'April', 'May', 'June',
+                  'July', 'August', 'September', 'October', 'November', 'December']
+    monthly_cancel['arrival_date_month'] = pd.Categorical(monthly_cancel['arrival_date_month'], categories=month_order, ordered=True)
+    monthly_cancel = monthly_cancel.sort_values('arrival_date_month')
+
+    cancel_by_month = px.line(
+        monthly_cancel, x='arrival_date_month', y='is_canceled',
+        title='Taxa de Cancelamento por Mês',
+        labels={'arrival_date_month': 'Mês', 'is_canceled': 'Taxa de Cancelamento'},
+        color_discrete_sequence=[COLORS['secondary']]
+    ).update_layout(
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['white'],
+        font_color=COLORS['dark'],
+        title_font_color=COLORS['dark']
+    )
+
+    cancel_by_customer = px.bar(
+        filtered_df.groupby('customer_type')['is_canceled'].mean().reset_index(),
+        x='customer_type', y='is_canceled',
+        title='Taxa de Cancelamento por Tipo de Cliente',
+        labels={'customer_type': 'Tipo de Cliente', 'is_canceled': 'Taxa de Cancelamento'},
+        color='is_canceled',
+        color_continuous_scale=[[0, COLORS['secondary']], [1, COLORS['accent']]]
+    ).update_layout(
+        plot_bgcolor=COLORS['background'],
+        paper_bgcolor=COLORS['white'],
+        font_color=COLORS['dark'],
+        title_font_color=COLORS['dark']
+    )
+
+    return cancel_rate, total_bookings, avg_adr, cancel_by_segment, cancel_by_month, cancel_by_customer
+
+# Callback para predição
+@app.callback(
+    [Output('prediction-result', 'children'),
+     Output('probability-chart', 'figure')],
+    [Input('predict-btn', 'n_clicks')],
+    [dash.dependencies.State('lead-time', 'value'),
+     dash.dependencies.State('adr', 'value'),
+     dash.dependencies.State('pred-hotel', 'value'),
+     dash.dependencies.State('customer-type', 'value'),
+     dash.dependencies.State('total-nights', 'value'),
+     dash.dependencies.State('total-guests', 'value')]
+)
+def make_prediction(n_clicks, lead_time, adr, hotel, customer_type, total_nights, total_guests):
+    if n_clicks is None:
+        return "Preencha os dados e clique em 'Fazer Predição'", go.Figure()
+
+    try:
+        # Criar dados de input
+        input_data = pd.DataFrame({
+            'hotel': [hotel],
+            'lead_time': [lead_time],
+            'adr': [adr],
+            'customer_type': [customer_type],
+            'stays_in_week_nights': [total_nights],
+            'stays_in_weekend_nights': [0],
+            'adults': [total_guests],
+            'children': [0],
+            'babies': [0],
+            'country': ['PRT'],
+            'market_segment': ['Online TA'],
+            'distribution_channel': ['TA/TO'],
+            'is_repeated_guest': [0],
+            'previous_cancellations': [0],
+            'previous_bookings_not_canceled': [0],
+            'reserved_room_type': ['A'],
+            'assigned_room_type': ['A'],
+            'booking_changes': [0],
+            'deposit_type': ['No Deposit'],
+            'agent': [0],
+            'company': [0],
+            'required_car_parking_spaces': [0],
+            'total_of_special_requests': [0],
+            'arrival_date_month': ['July'],
+            'arrival_date_week_number': [28],
+            'arrival_date_day_of_month': [15],
+            'total_guests': [total_guests],
+            'total_nights': [total_nights],
+            'has_special_request': [0],
+            'is_family': [1 if total_guests > 1 else 0]
+        })
+
+        # Fazer predição
+        prediction = best_model.predict(input_data)[0]
+        probability = best_model.predict_proba(input_data)[0]
+
+        # Resultado
+        result_text = "✅ NÃO CANCELARÁ" if prediction == 0 else "❌ CANCELARÁ"
+
+        # Gráfico de probabilidade
+        prob_fig = px.bar(
+            x=['Não Cancelar', 'Cancelar'],
+            y=probability,
+            title='Probabilidade de Cancelamento',
+            labels={'x': 'Resultado', 'y': 'Probabilidade'},
+            color=probability,
+            color_continuous_scale=[[0, COLORS['secondary']], [0.5, COLORS['primary']], [1, COLORS['accent']]]
+        ).update_layout(
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['white'],
+            font_color=COLORS['dark'],
+            title_font_color=COLORS['dark']
+        )
+
+        return f"{result_text} ({probability[1]*100:.1f}% chance)", prob_fig
+
+    except Exception as e:
+        return f"Erro na predição: {str(e)}", go.Figure()
 
 """# EXECUTAR O DASHBOARD"""
 
