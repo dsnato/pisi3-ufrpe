@@ -9,6 +9,7 @@ Análise Completa: Pré-processamento, Treinamento e Otimização
 # ============================================================================
 
 import os
+import pathlib
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -46,6 +47,11 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score,
 # XGBoost
 import xgboost as xgb
 
+# K-Means
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score
+
 print("="*80)
 print("🚀 INICIANDO PROCESSO DE MACHINE LEARNING")
 print("="*80)
@@ -55,32 +61,40 @@ print("="*80)
 # ----------------------------------------------------------------------------
 print("\n📂 [1/2] Carregando dados...")
 
-parquet_file = 'hotel_bookings.parquet'
-csv_file = 'hotel_bookings.csv'
+script_dir = pathlib.Path(__file__).resolve().parent
+data_dir = script_dir / 'data'
+parquet_file = script_dir / 'hotel_bookings.parquet'
+csv_file = script_dir / 'hotel_bookings.csv'
+parquet_file_alt = script_dir.parent / 'hotel_bookings.parquet'
+csv_file_alt = script_dir.parent / 'hotel_bookings.csv'
+parquet_file_data = data_dir / 'hotel_bookings.parquet'
+csv_file_data = data_dir / 'hotel_bookings.csv'
 
-if os.path.exists(parquet_file):
-    df = pd.read_parquet(parquet_file)
-    print(f"✅ Dataset carregado do Parquet: {parquet_file}")
-elif os.path.exists(csv_file):
-    df = pd.read_csv(csv_file)
-    print(f"✅ Dataset carregado do CSV: {csv_file}")
-    df.to_parquet(parquet_file, index=False)
-    print(f"✅ Dataset salvo em Parquet: {parquet_file}")
-else:
-    # Tentar caminhos alternativos
-    csv_file_alt = '../hotel_bookings.csv'
-    parquet_file_alt = '../hotel_bookings.parquet'
-    
-    if os.path.exists(parquet_file_alt):
-        df = pd.read_parquet(parquet_file_alt)
-        print(f"✅ Dataset carregado: {parquet_file_alt}")
-    elif os.path.exists(csv_file_alt):
-        df = pd.read_csv(csv_file_alt)
-        print(f"✅ Dataset carregado: {csv_file_alt}")
-        df.to_parquet(parquet_file_alt, index=False)
-        print(f"✅ Dataset salvo em Parquet: {parquet_file_alt}")
-    else:
-        raise FileNotFoundError("❌ Arquivo não encontrado!")
+loaded = False
+for p in (parquet_file, parquet_file_alt, parquet_file_data):
+    if p.exists():
+        df = pd.read_parquet(p)
+        print(f"✅ Dataset carregado do Parquet: {p}")
+        loaded = True
+        break
+if not loaded:
+    for p in (csv_file, csv_file_alt, csv_file_data):
+        if p.exists():
+            df = pd.read_csv(p)
+            print(f"✅ Dataset carregado do CSV: {p}")
+            try:
+                parquet_target = p.with_suffix('.parquet')
+                df.to_parquet(parquet_target, index=False)
+                print(f"✅ Dataset salvo em Parquet: {parquet_target}")
+            except Exception:
+                pass
+            loaded = True
+            break
+if not loaded:
+    raise FileNotFoundError(
+        "❌ Arquivo não encontrado! Coloque 'hotel_bookings.csv' ou 'hotel_bookings.parquet' "
+        f"em {script_dir}, {script_dir.parent} ou {data_dir}"
+    )
 
 print(f"📊 Dataset: {df.shape[0]:,} linhas x {df.shape[1]} colunas")
 
@@ -262,15 +276,15 @@ print("   ✅ Pipeline configurado!")
 # ----------------------------------------------------------------------------
 print("\n💾 Salvando objetos processados...")
 
-joblib.dump(X_train, 'X_train.pkl')
-joblib.dump(X_test, 'X_test.pkl')
-joblib.dump(y_train, 'y_train.pkl')
-joblib.dump(y_test, 'y_test.pkl')
-joblib.dump(preprocessor, 'preprocessor.pkl')
-joblib.dump(features, 'features_list.pkl')
+joblib.dump(X_train, script_dir / 'X_train.pkl')
+joblib.dump(X_test, script_dir / 'X_test.pkl')
+joblib.dump(y_train, script_dir / 'y_train.pkl')
+joblib.dump(y_test, script_dir / 'y_test.pkl')
+joblib.dump(preprocessor, script_dir / 'preprocessor.pkl')
+joblib.dump(features, script_dir / 'features_list.pkl')
 
 # Salvar também o DataFrame processado
-df.to_parquet('hotel_bookings_processed.parquet', index=False)
+df.to_parquet(script_dir / 'hotel_bookings_processed.parquet', index=False)
 
 print("   ✅ X_train.pkl")
 print("   ✅ X_test.pkl")
@@ -717,4 +731,328 @@ print(f"   • feature_importance.png")
 print(f"   • feature_importance.csv")
 print(f"   • category_importance.png")
 print(f"   • numeric_vs_categorical.png")
+
+# ============================================================================
+# CLUSTERIZAÇÃO COM K-MEANS
+# ============================================================================
+
+
+# Defensive import in case script is run from here
+try:
+    from sklearn.cluster import KMeans
+except ImportError:
+    raise ImportError("scikit-learn is required for KMeans clustering.")
+
+print("="*80)
+print("🔍 CLUSTERIZAÇÃO COM K-MEANS")
+print("="*80)
+
+# ----------------------------------------------------------------------------
+# Carregar dados
+# ----------------------------------------------------------------------------
+print("\n📂 Carregando dados...")
+
+df = pd.read_parquet('hotel_bookings_processed.parquet')
+print(f"   ✅ Dataset: {len(df):,} linhas")
+
+# ----------------------------------------------------------------------------
+# Preparar dados para clusterização
+# ----------------------------------------------------------------------------
+print("\n⚙️ Preparando dados para clusterização...")
+
+# Selecionar apenas colunas numéricas
+numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+X_cluster = df[numeric_cols].copy()
+
+print(f"   • Features numéricas: {len(numeric_cols)}")
+
+# Tratar valores faltantes
+imputer = SimpleImputer(strategy='median')
+X_cluster_imputed = imputer.fit_transform(X_cluster)
+
+# Normalizar
+scaler = StandardScaler()
+X_cluster_scaled = scaler.fit_transform(X_cluster_imputed)
+
+print(f"   ✅ Dados preparados: {X_cluster_scaled.shape}")
+
+# ----------------------------------------------------------------------------
+# Determinar número ideal de clusters
+# ----------------------------------------------------------------------------
+print("\n🔍 Determinando número ideal de clusters...")
+print("   Testando k de 2 a 10...")
+
+inertia = []
+silhouette_scores = []
+k_range = range(2, 11)
+
+for k in k_range:
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    kmeans.fit(X_cluster_scaled)
+    inertia.append(kmeans.inertia_)
+    sil_score = silhouette_score(X_cluster_scaled, kmeans.labels_)
+    silhouette_scores.append(sil_score)
+    print(f"   • k={k}: Silhouette={sil_score:.4f}, Inércia={kmeans.inertia_:.0f}")
+
+# Visualização do método do cotovelo
+fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+
+# Método do cotovelo
+axes[0].plot(k_range, inertia, 'bo-', linewidth=2, markersize=8)
+axes[0].set_xlabel('Número de Clusters (k)', fontsize=12)
+axes[0].set_ylabel('Inércia', fontsize=12)
+axes[0].set_title('Método do Cotovelo', fontweight='bold', fontsize=14)
+axes[0].grid(True, alpha=0.3)
+
+# Silhouette score
+axes[1].plot(k_range, silhouette_scores, 'ro-', linewidth=2, markersize=8)
+axes[1].set_xlabel('Número de Clusters (k)', fontsize=12)
+axes[1].set_ylabel('Silhouette Score', fontsize=12)
+axes[1].set_title('Silhouette Score', fontweight='bold', fontsize=14)
+axes[1].grid(True, alpha=0.3)
+
+# Destacar melhor k
+best_k_idx = np.argmax(silhouette_scores)
+best_k = k_range[best_k_idx]
+axes[1].axvline(best_k, color='green', linestyle='--', linewidth=2, 
+                label=f'Melhor k={best_k}')
+axes[1].legend()
+
+plt.tight_layout()
+plt.savefig('cluster_elbow_method.png', dpi=300, bbox_inches='tight')
+print(f"\n   ✅ Gráfico salvo: cluster_elbow_method.png")
+plt.show()
+
+# ----------------------------------------------------------------------------
+# Aplicar K-Means com k ideal
+# ----------------------------------------------------------------------------
+optimal_k = best_k
+print(f"\n🎯 Número ideal de clusters: {optimal_k}")
+print(f"   Silhouette Score: {silhouette_scores[best_k_idx]:.4f}")
+
+kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
+clusters = kmeans.fit_predict(X_cluster_scaled)
+
+# Adicionar clusters ao DataFrame
+df['cluster'] = clusters
+
+print(f"\n📊 DISTRIBUIÇÃO DOS CLUSTERS:")
+cluster_counts = pd.Series(clusters).value_counts().sort_index()
+for cluster_id, count in cluster_counts.items():
+    print(f"   Cluster {cluster_id}: {count:,} amostras ({count/len(df)*100:.2f}%)")
+
+# ----------------------------------------------------------------------------
+# Análise dos Clusters
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("📊 ANÁLISE DAS CARACTERÍSTICAS DOS CLUSTERS")
+print("="*80)
+
+cluster_analysis = df.groupby('cluster').agg({
+    'is_canceled': 'mean',
+    'adr': 'mean',
+    'lead_time': 'mean',
+    'total_guests': 'mean',
+    'total_nights': 'mean',
+    'total_of_special_requests': 'mean',
+    'previous_cancellations': 'mean',
+    'booking_changes': 'mean'
+}).round(3)
+
+cluster_analysis.columns = [
+    'taxa_cancelamento', 'adr_medio', 'lead_time_medio',
+    'guests_medio', 'noites_medias', 'pedidos_especiais',
+    'cancel_anteriores', 'mudancas_booking'
+]
+
+print("\n📋 CARACTERÍSTICAS POR CLUSTER:")
+from IPython.display import display
+display(cluster_analysis)
+
+# Salvar análise
+cluster_analysis.to_csv('cluster_analysis.csv')
+print("\n   ✅ Salvo: cluster_analysis.csv")
+
+# ----------------------------------------------------------------------------
+# Interpretação dos Clusters
+# ----------------------------------------------------------------------------
+print("\n🔍 INTERPRETAÇÃO DOS CLUSTERS:")
+
+for cluster_id in range(optimal_k):
+    data = cluster_analysis.loc[cluster_id]
+    print(f"\n   📌 CLUSTER {cluster_id}:")
+    print(f"      • Taxa cancelamento: {data['taxa_cancelamento']*100:.1f}%")
+    print(f"      • ADR médio: ${data['adr_medio']:.2f}")
+    print(f"      • Lead time: {data['lead_time_medio']:.0f} dias")
+    print(f"      • Hóspedes: {data['guests_medio']:.1f}")
+    print(f"      • Noites: {data['noites_medias']:.1f}")
+
+# ----------------------------------------------------------------------------
+# Visualização com PCA
+# ----------------------------------------------------------------------------
+print("\n📊 Criando visualização com PCA...")
+
+pca = PCA(n_components=2)
+X_pca = pca.fit_transform(X_cluster_scaled)
+
+# Variância explicada
+print(f"   • PC1 explica: {pca.explained_variance_ratio_[0]*100:.2f}%")
+print(f"   • PC2 explica: {pca.explained_variance_ratio_[1]*100:.2f}%")
+print(f"   • Total: {sum(pca.explained_variance_ratio_)*100:.2f}%")
+
+# Visualização
+plt.figure(figsize=(12, 8))
+scatter = plt.scatter(X_pca[:, 0], X_pca[:, 1], 
+                     c=clusters, cmap='viridis', 
+                     alpha=0.6, edgecolors='black', linewidth=0.5)
+plt.colorbar(scatter, label='Cluster')
+plt.xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)', fontsize=12)
+plt.ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)', fontsize=12)
+plt.title('Visualização de Clusters com PCA', fontweight='bold', fontsize=14)
+plt.grid(True, alpha=0.3)
+
+# Adicionar centroides
+centroids_pca = pca.transform(kmeans.cluster_centers_)
+plt.scatter(centroids_pca[:, 0], centroids_pca[:, 1], 
+           marker='X', s=300, c='red', edgecolors='black', linewidth=2,
+           label='Centroides')
+plt.legend()
+
+plt.tight_layout()
+plt.savefig('cluster_visualization.png', dpi=300, bbox_inches='tight')
+print(f"   ✅ Gráfico salvo: cluster_visualization.png")
+plt.show()
+
+# ----------------------------------------------------------------------------
+# Análise de Cancelamento por Cluster
+# ----------------------------------------------------------------------------
+print("\n📊 Criando análise visual por cluster...")
+
+fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+
+# Taxa de cancelamento
+cancel_by_cluster = df.groupby('cluster')['is_canceled'].mean() * 100
+axes[0, 0].bar(range(optimal_k), cancel_by_cluster.values, 
+              color='coral', edgecolor='black')
+axes[0, 0].set_xlabel('Cluster')
+axes[0, 0].set_ylabel('Taxa de Cancelamento (%)')
+axes[0, 0].set_title('Taxa de Cancelamento por Cluster', fontweight='bold')
+axes[0, 0].set_xticks(range(optimal_k))
+
+# ADR médio
+adr_by_cluster = df.groupby('cluster')['adr'].mean()
+axes[0, 1].bar(range(optimal_k), adr_by_cluster.values, 
+              color='skyblue', edgecolor='black')
+axes[0, 1].set_xlabel('Cluster')
+axes[0, 1].set_ylabel('ADR Médio ($)')
+axes[0, 1].set_title('ADR Médio por Cluster', fontweight='bold')
+axes[0, 1].set_xticks(range(optimal_k))
+
+# Lead time
+lead_by_cluster = df.groupby('cluster')['lead_time'].mean()
+axes[1, 0].bar(range(optimal_k), lead_by_cluster.values, 
+              color='lightgreen', edgecolor='black')
+axes[1, 0].set_xlabel('Cluster')
+axes[1, 0].set_ylabel('Lead Time Médio (dias)')
+axes[1, 0].set_title('Lead Time Médio por Cluster', fontweight='bold')
+axes[1, 0].set_xticks(range(optimal_k))
+
+# Total de hóspedes
+guests_by_cluster = df.groupby('cluster')['total_guests'].mean()
+axes[1, 1].bar(range(optimal_k), guests_by_cluster.values, 
+              color='gold', edgecolor='black')
+axes[1, 1].set_xlabel('Cluster')
+axes[1, 1].set_ylabel('Número Médio de Hóspedes')
+axes[1, 1].set_title('Hóspedes Médios por Cluster', fontweight='bold')
+axes[1, 1].set_xticks(range(optimal_k))
+
+plt.tight_layout()
+plt.savefig('cluster_characteristics.png', dpi=300, bbox_inches='tight')
+print(f"   ✅ Gráfico salvo: cluster_characteristics.png")
+plt.show()
+
+# ----------------------------------------------------------------------------
+# Salvamento Final
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("💾 SALVANDO RESULTADOS FINAIS")
+print("="*80)
+
+# Salvar modelo de clusterização
+joblib.dump(kmeans, 'kmeans_model.pkl')
+print("   ✅ kmeans_model.pkl")
+
+# Salvar scaler e imputer
+joblib.dump(scaler, 'cluster_scaler.pkl')
+joblib.dump(imputer, 'cluster_imputer.pkl')
+print("   ✅ cluster_scaler.pkl")
+print("   ✅ cluster_imputer.pkl")
+
+# Salvar PCA
+joblib.dump(pca, 'pca_model.pkl')
+print("   ✅ pca_model.pkl")
+
+# Salvar DataFrame final com clusters
+df.to_csv('hotel_bookings_analyzed.csv', index=False)
+df.to_parquet('hotel_bookings_analyzed.parquet', index=False)
+print("   ✅ hotel_bookings_analyzed.csv")
+print("   ✅ hotel_bookings_analyzed.parquet")
+
+# Criar resumo geral
+summary = {
+    'dataset': {
+        'total_samples': int(len(df)),
+        'features': len(numeric_cols),
+        'target_balance': float(df['is_canceled'].mean())
+    },
+    'clustering': {
+        'n_clusters': int(optimal_k),
+        'silhouette_score': float(silhouette_scores[best_k_idx]),
+        'cluster_sizes': {int(k): int(v) for k, v in cluster_counts.items()}
+    },
+    'cluster_characteristics': cluster_analysis.to_dict()
+}
+
+import json
+with open('ml_summary.json', 'w', encoding='utf-8') as f:
+    json.dump(summary, f, indent=4, ensure_ascii=False)
+print("   ✅ ml_summary.json")
+
+# ----------------------------------------------------------------------------
+# Resumo Final
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("🎉 PROCESSO DE MACHINE LEARNING CONCLUÍDO!")
+print("="*80)
+
+print("\n📊 RESUMO GERAL:")
+print(f"   • Dataset: {len(df):,} amostras")
+print(f"   • Features: {len(numeric_cols)}")
+print(f"   • Clusters identificados: {optimal_k}")
+print(f"   • Silhouette Score: {silhouette_scores[best_k_idx]:.4f}")
+
+print("\n📁 ARQUIVOS GERADOS:")
+print("   Modelos:")
+print("      • kmeans_model.pkl")
+print("      • cluster_scaler.pkl")
+print("      • cluster_imputer.pkl")
+print("      • pca_model.pkl")
+print("   \n   Dados:")
+print("      • hotel_bookings_analyzed.csv")
+print("      • hotel_bookings_analyzed.parquet")
+print("      • cluster_analysis.csv")
+print("      • ml_summary.json")
+print("   \n   Visualizações:")
+print("      • cluster_elbow_method.png")
+print("      • cluster_visualization.png")
+print("      • cluster_characteristics.png")
+
+print("\n💡 PRÓXIMOS PASSOS:")
+print("   1. Revisar características dos clusters")
+print("   2. Criar estratégias específicas por cluster")
+print("   3. Implementar dashboard interativo")
+print("   4. Deploy do modelo em produção")
+
+print("\n" + "="*80)
+print("✅ ANÁLISE COMPLETA FINALIZADA COM SUCESSO!")
 print("="*80)
