@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 Machine Learning - Hotel Booking Demand
-Commit 1: Setup Inicial e Carregamento de Dados
+Análise Completa: Pré-processamento, Treinamento e Otimização
 """
 
 # ============================================================================
 # SETUP E CONFIGURAÇÃO INICIAL
 # ============================================================================
 
-from IPython.display import display
-import joblib
 import os
+import warnings
+warnings.filterwarnings('ignore')
 
 # Configuração para evitar erros de multiprocessing
 os.environ['LOKY_MAX_CPU_COUNT'] = '1'
@@ -18,13 +18,33 @@ os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
-# Importações
+# Importações principais
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import warnings
-warnings.filterwarnings('ignore')
+import joblib
+
+# IPython display
+try:
+    from IPython.display import display
+except ImportError:
+    def display(obj):
+        print(obj)
+
+# Scikit-learn
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                            f1_score, confusion_matrix, classification_report)
+
+# XGBoost
+import xgboost as xgb
 
 print("="*80)
 print("🚀 INICIANDO PROCESSO DE MACHINE LEARNING")
@@ -109,11 +129,11 @@ print("\n" + "="*80)
 print("✅ CARREGAMENTO E ANÁLISE INICIAL CONCLUÍDOS!")
 print("="*80)
 
-# Carregar dados
-df = pd.read_parquet('hotel_bookings.parquet')
-print("✅ Dataset carregado\n")
+# ============================================================================
+# PRÉ-PROCESSAMENTO DOS DADOS
+# ============================================================================
 
-print("="*80)
+print("\n" + "="*80)
 print("🔧 PRÉ-PROCESSAMENTO DOS DADOS")
 print("="*80)
 
@@ -242,8 +262,6 @@ print("   ✅ Pipeline configurado!")
 # ----------------------------------------------------------------------------
 print("\n💾 Salvando objetos processados...")
 
-import joblib
-
 joblib.dump(X_train, 'X_train.pkl')
 joblib.dump(X_test, 'X_test.pkl')
 joblib.dump(y_train, 'y_train.pkl')
@@ -277,35 +295,10 @@ print("="*80)
 # TREINAMENTO DE MODELOS DE CLASSIFICAÇÃO
 # ============================================================================
 
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import joblib
-from sklearn.pipeline import Pipeline
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (accuracy_score, precision_score, recall_score,
-                            f1_score, confusion_matrix, classification_report)
-import xgboost as xgb
-import warnings
-warnings.filterwarnings('ignore')
-
-print("="*80)
+print("\n" + "="*80)
 print("🤖 TREINAMENTO DE MODELOS DE CLASSIFICAÇÃO")
 print("="*80)
-
-# ----------------------------------------------------------------------------
-# Carregar dados pré-processados
-# ----------------------------------------------------------------------------
-print("\n📂 Carregando dados pré-processados...")
-
-X_train = joblib.load('X_train.pkl')
-X_test = joblib.load('X_test.pkl')
-y_train = joblib.load('y_train.pkl')
-y_test = joblib.load('y_test.pkl')
-preprocessor = joblib.load('preprocessor.pkl')
-
+print(f"\n   ✅ Usando dados já carregados")
 print(f"   ✅ Treino: {X_train.shape[0]:,} amostras")
 print(f"   ✅ Teste: {X_test.shape[0]:,} amostras")
 
@@ -392,7 +385,6 @@ results_df = pd.DataFrame({
 }).sort_values('F1-Score', ascending=False)
 
 print("\n📊 MÉTRICAS DE DESEMPENHO:")
-from IPython.display import display
 display(results_df)
 
 # Identificar melhor modelo
@@ -516,22 +508,10 @@ print("="*80)
 # OTIMIZAÇÃO E ANÁLISE DE IMPORTÂNCIA
 # ============================================================================
 
-print("="*80)
+print("\n" + "="*80)
 print("⚙️ OTIMIZAÇÃO DE HIPERPARÂMETROS")
 print("="*80)
-
-# ----------------------------------------------------------------------------
-# Carregar dados
-# ----------------------------------------------------------------------------
-print("\n📂 Carregando dados...")
-
-X_train = joblib.load('X_train.pkl')
-X_test = joblib.load('X_test.pkl')
-y_train = joblib.load('y_train.pkl')
-y_test = joblib.load('y_test.pkl')
-preprocessor = joblib.load('preprocessor.pkl')
-
-print(f"   ✅ Dados carregados")
+print(f"\n   ✅ Usando dados já carregados")
 
 # ----------------------------------------------------------------------------
 # Configurar Otimização
