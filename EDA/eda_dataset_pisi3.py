@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from IPython.display import display
 import warnings
+import json
 warnings.filterwarnings('ignore')
 
 # Tentar importar missingno (opcional)
@@ -571,16 +572,181 @@ plt.tight_layout()
 plt.show()
 
 # ============================================================================
-# FINALIZAÇÃO
+# ANÁLISE DE SEGMENTOS E CORRELAÇÕES
 # ============================================================================
 
-print("\n" + "="*80)
-print("✅ ANÁLISE EXPLORATÓRIA DE DADOS CONCLUÍDA COM SUCESSO!")
+plt.style.use('ggplot')
+sns.set_palette("husl")
+
+df = pd.read_parquet("hotel_bookings.parquet")
+print(f"✅ Dataset carregado: {df.shape[0]:,} linhas\n")
+
+# ----------------------------------------------------------------------------
+# Análise de Segmento de Mercado e Canal de Distribuição
+# ----------------------------------------------------------------------------
 print("="*80)
-print(f"\n📊 Resumo da Análise:")
-print(f"   • Total de registros analisados: {len(df):,}")
-print(f"   • Taxa de cancelamento: {df['is_canceled'].mean()*100:.2f}%")
-print(f"   • Período: {df['arrival_date'].min()} a {df['arrival_date'].max()}")
-print(f"   • ADR médio: ${df['adr'].mean():.2f}")
-print(f"   • Lead time médio: {df['lead_time'].mean():.1f} dias")
+print("ANÁLISE DE SEGMENTO DE MERCADO E CANAL DE DISTRIBUIÇÃO")
+print("="*80)
+
+fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+
+# Segmento de mercado
+market_segment_counts = df['market_segment'].value_counts()
+axes[0, 0].bar(range(len(market_segment_counts)), market_segment_counts.values, 
+               color='skyblue', edgecolor='black')
+axes[0, 0].set_title('Distribuição por Segmento de Mercado', fontweight='bold')
+axes[0, 0].set_xlabel('Segmento de Mercado')
+axes[0, 0].set_ylabel('Número de Reservas')
+axes[0, 0].set_xticks(range(len(market_segment_counts)))
+axes[0, 0].set_xticklabels(market_segment_counts.index, rotation=45, ha='right')
+
+# Taxa de cancelamento por segmento
+cancel_by_segment = df.groupby('market_segment')['is_canceled'].mean() * 100
+axes[0, 1].bar(range(len(cancel_by_segment)), cancel_by_segment.values, 
+               color='salmon', edgecolor='black')
+axes[0, 1].set_title('Taxa de Cancelamento por Segmento', fontweight='bold')
+axes[0, 1].set_xlabel('Segmento de Mercado')
+axes[0, 1].set_ylabel('Taxa de Cancelamento (%)')
+axes[0, 1].set_xticks(range(len(cancel_by_segment)))
+axes[0, 1].set_xticklabels(cancel_by_segment.index, rotation=45, ha='right')
+
+# Canal de distribuição
+distribution_channel_counts = df['distribution_channel'].value_counts()
+axes[1, 0].bar(range(len(distribution_channel_counts)), distribution_channel_counts.values, 
+               color='lightgreen', edgecolor='black')
+axes[1, 0].set_title('Distribuição por Canal de Distribuição', fontweight='bold')
+axes[1, 0].set_xlabel('Canal de Distribuição')
+axes[1, 0].set_ylabel('Número de Reservas')
+axes[1, 0].set_xticks(range(len(distribution_channel_counts)))
+axes[1, 0].set_xticklabels(distribution_channel_counts.index, rotation=45, ha='right')
+
+# Taxa de cancelamento por canal
+cancel_by_channel = df.groupby('distribution_channel')['is_canceled'].mean() * 100
+axes[1, 1].bar(range(len(cancel_by_channel)), cancel_by_channel.values, 
+               color='orange', edgecolor='black')
+axes[1, 1].set_title('Taxa de Cancelamento por Canal', fontweight='bold')
+axes[1, 1].set_xlabel('Canal de Distribuição')
+axes[1, 1].set_ylabel('Taxa de Cancelamento (%)')
+axes[1, 1].set_xticks(range(len(cancel_by_channel)))
+axes[1, 1].set_xticklabels(cancel_by_channel.index, rotation=45, ha='right')
+
+plt.tight_layout()
+plt.show()
+
+print("\n📊 SEGMENTOS DE MERCADO:")
+for segment, count in market_segment_counts.items():
+    cancel_rate = cancel_by_segment[segment]
+    print(f"   {segment}: {count:,} reservas (cancelamento: {cancel_rate:.2f}%)")
+
+# ----------------------------------------------------------------------------
+# Análise de Tipos de Cliente
+# ----------------------------------------------------------------------------
 print("\n" + "="*80)
+print("ANÁLISE DE TIPOS DE CLIENTE")
+print("="*80)
+
+fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+
+# Distribuição por tipo
+customer_type_counts = df['customer_type'].value_counts()
+axes[0].bar(range(len(customer_type_counts)), customer_type_counts.values, 
+            color='lightcoral', edgecolor='black')
+axes[0].set_title('Distribuição por Tipo de Cliente', fontweight='bold', fontsize=14)
+axes[0].set_xlabel('Tipo de Cliente', fontsize=12)
+axes[0].set_ylabel('Número de Reservas', fontsize=12)
+axes[0].set_xticks(range(len(customer_type_counts)))
+axes[0].set_xticklabels(customer_type_counts.index, rotation=45, ha='right')
+
+# Taxa de cancelamento por tipo
+cancel_by_customer = df.groupby('customer_type')['is_canceled'].mean() * 100
+axes[1].bar(range(len(cancel_by_customer)), cancel_by_customer.values, 
+            color='mediumpurple', edgecolor='black')
+axes[1].set_title('Taxa de Cancelamento por Tipo de Cliente', fontweight='bold', fontsize=14)
+axes[1].set_xlabel('Tipo de Cliente', fontsize=12)
+axes[1].set_ylabel('Taxa de Cancelamento (%)', fontsize=12)
+axes[1].set_xticks(range(len(cancel_by_customer)))
+axes[1].set_xticklabels(cancel_by_customer.index, rotation=45, ha='right')
+
+plt.tight_layout()
+plt.show()
+
+# Análise detalhada
+customer_analysis = df.groupby('customer_type').agg({
+    'is_canceled': 'mean',
+    'adr': 'mean',
+    'lead_time': 'mean',
+    'total_of_special_requests': 'mean'
+}).round(3)
+
+customer_analysis.columns = ['taxa_cancelamento', 'adr_medio', 'lead_time_medio', 'solicitacoes_especiais']
+customer_analysis['taxa_cancelamento'] = customer_analysis['taxa_cancelamento'] * 100
+
+print("\n📊 ANÁLISE DETALHADA POR TIPO DE CLIENTE:")
+display(customer_analysis)
+
+# ----------------------------------------------------------------------------
+# Matriz de Correlações
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("MATRIZ DE CORRELAÇÕES")
+print("="*80)
+
+numeric_cols = df.select_dtypes(include=[np.number]).columns
+correlation_matrix = df[numeric_cols].corr()
+
+# Correlações com target
+target_correlations = correlation_matrix['is_canceled'].sort_values(ascending=False)
+
+print("\n🔝 PRINCIPAIS CORRELAÇÕES COM CANCELAMENTO:")
+display(target_correlations)
+
+# Heatmap
+plt.figure(figsize=(16, 12))
+sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', center=0,
+            annot_kws={'size': 8}, fmt='.2f', linewidths=0.5)
+plt.title('Matriz de Correlação entre Variáveis Numéricas', fontweight='bold', fontsize=16)
+plt.tight_layout()
+plt.show()
+
+# Correlações fortes
+strong_correlations = target_correlations[(abs(target_correlations) > 0.1) & (target_correlations != 1.0)]
+print("\n🎯 VARIÁVEIS COM CORRELAÇÃO FORTE (|corr| > 0.1):")
+display(strong_correlations)
+
+# ----------------------------------------------------------------------------
+# Análise Multivariada Avançada
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("ANÁLISE MULTIVARIADA AVANÇADA")
+print("="*80)
+
+# Hotel vs Lead Time vs Cancelamento
+plt.figure(figsize=(12, 6))
+sns.boxplot(x='hotel', y='lead_time', hue='is_canceled', data=df)
+plt.title('Tipo de Hotel vs Lead Time vs Cancelamento', fontweight='bold', fontsize=14)
+plt.ylabel('Lead Time (dias)', fontsize=12)
+plt.xlabel('Tipo de Hotel', fontsize=12)
+plt.legend(title='Cancelado', labels=['Não', 'Sim'])
+plt.tight_layout()
+plt.show()
+
+# Cancelamentos por país e hotel
+pivot_table = df.pivot_table(values='is_canceled',
+                            index='country',
+                            columns='hotel',
+                            aggfunc='mean',
+                            fill_value=0)
+
+top_countries = df['country'].value_counts().head(15).index
+pivot_table_filtered = pivot_table.loc[top_countries]
+
+plt.figure(figsize=(14, 8))
+pivot_table_filtered.plot(kind='bar', figsize=(14, 8), edgecolor='black')
+plt.title('Taxa de Cancelamento por País e Tipo de Hotel (Top 15)', fontweight='bold', fontsize=14)
+plt.ylabel('Taxa de Cancelamento', fontsize=12)
+plt.xlabel('País', fontsize=12)
+plt.xticks(rotation=45, ha='right')
+plt.legend(title='Tipo de Hotel')
+plt.tight_layout()
+plt.show()
+
