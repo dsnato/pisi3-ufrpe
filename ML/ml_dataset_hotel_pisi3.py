@@ -9,6 +9,7 @@ Análise Completa: Pré-processamento, Treinamento e Otimização
 # ============================================================================
 
 import os
+import pathlib
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -60,32 +61,40 @@ print("="*80)
 # ----------------------------------------------------------------------------
 print("\n📂 [1/2] Carregando dados...")
 
-parquet_file = 'hotel_bookings.parquet'
-csv_file = 'hotel_bookings.csv'
+script_dir = pathlib.Path(__file__).resolve().parent
+data_dir = script_dir / 'data'
+parquet_file = script_dir / 'hotel_bookings.parquet'
+csv_file = script_dir / 'hotel_bookings.csv'
+parquet_file_alt = script_dir.parent / 'hotel_bookings.parquet'
+csv_file_alt = script_dir.parent / 'hotel_bookings.csv'
+parquet_file_data = data_dir / 'hotel_bookings.parquet'
+csv_file_data = data_dir / 'hotel_bookings.csv'
 
-if os.path.exists(parquet_file):
-    df = pd.read_parquet(parquet_file)
-    print(f"✅ Dataset carregado do Parquet: {parquet_file}")
-elif os.path.exists(csv_file):
-    df = pd.read_csv(csv_file)
-    print(f"✅ Dataset carregado do CSV: {csv_file}")
-    df.to_parquet(parquet_file, index=False)
-    print(f"✅ Dataset salvo em Parquet: {parquet_file}")
-else:
-    # Tentar caminhos alternativos
-    csv_file_alt = '../hotel_bookings.csv'
-    parquet_file_alt = '../hotel_bookings.parquet'
-    
-    if os.path.exists(parquet_file_alt):
-        df = pd.read_parquet(parquet_file_alt)
-        print(f"✅ Dataset carregado: {parquet_file_alt}")
-    elif os.path.exists(csv_file_alt):
-        df = pd.read_csv(csv_file_alt)
-        print(f"✅ Dataset carregado: {csv_file_alt}")
-        df.to_parquet(parquet_file_alt, index=False)
-        print(f"✅ Dataset salvo em Parquet: {parquet_file_alt}")
-    else:
-        raise FileNotFoundError("❌ Arquivo não encontrado!")
+loaded = False
+for p in (parquet_file, parquet_file_alt, parquet_file_data):
+    if p.exists():
+        df = pd.read_parquet(p)
+        print(f"✅ Dataset carregado do Parquet: {p}")
+        loaded = True
+        break
+if not loaded:
+    for p in (csv_file, csv_file_alt, csv_file_data):
+        if p.exists():
+            df = pd.read_csv(p)
+            print(f"✅ Dataset carregado do CSV: {p}")
+            try:
+                parquet_target = p.with_suffix('.parquet')
+                df.to_parquet(parquet_target, index=False)
+                print(f"✅ Dataset salvo em Parquet: {parquet_target}")
+            except Exception:
+                pass
+            loaded = True
+            break
+if not loaded:
+    raise FileNotFoundError(
+        "❌ Arquivo não encontrado! Coloque 'hotel_bookings.csv' ou 'hotel_bookings.parquet' "
+        f"em {script_dir}, {script_dir.parent} ou {data_dir}"
+    )
 
 print(f"📊 Dataset: {df.shape[0]:,} linhas x {df.shape[1]} colunas")
 
@@ -267,15 +276,15 @@ print("   ✅ Pipeline configurado!")
 # ----------------------------------------------------------------------------
 print("\n💾 Salvando objetos processados...")
 
-joblib.dump(X_train, 'X_train.pkl')
-joblib.dump(X_test, 'X_test.pkl')
-joblib.dump(y_train, 'y_train.pkl')
-joblib.dump(y_test, 'y_test.pkl')
-joblib.dump(preprocessor, 'preprocessor.pkl')
-joblib.dump(features, 'features_list.pkl')
+joblib.dump(X_train, script_dir / 'X_train.pkl')
+joblib.dump(X_test, script_dir / 'X_test.pkl')
+joblib.dump(y_train, script_dir / 'y_train.pkl')
+joblib.dump(y_test, script_dir / 'y_test.pkl')
+joblib.dump(preprocessor, script_dir / 'preprocessor.pkl')
+joblib.dump(features, script_dir / 'features_list.pkl')
 
 # Salvar também o DataFrame processado
-df.to_parquet('hotel_bookings_processed.parquet', index=False)
+df.to_parquet(script_dir / 'hotel_bookings_processed.parquet', index=False)
 
 print("   ✅ X_train.pkl")
 print("   ✅ X_test.pkl")
@@ -727,6 +736,13 @@ print(f"   • numeric_vs_categorical.png")
 # CLUSTERIZAÇÃO COM K-MEANS
 # ============================================================================
 
+
+# Defensive import in case script is run from here
+try:
+    from sklearn.cluster import KMeans
+except ImportError:
+    raise ImportError("scikit-learn is required for KMeans clustering.")
+
 print("="*80)
 print("🔍 CLUSTERIZAÇÃO COM K-MEANS")
 print("="*80)
@@ -966,3 +982,77 @@ print("="*80)
 joblib.dump(kmeans, 'kmeans_model.pkl')
 print("   ✅ kmeans_model.pkl")
 
+# Salvar scaler e imputer
+joblib.dump(scaler, 'cluster_scaler.pkl')
+joblib.dump(imputer, 'cluster_imputer.pkl')
+print("   ✅ cluster_scaler.pkl")
+print("   ✅ cluster_imputer.pkl")
+
+# Salvar PCA
+joblib.dump(pca, 'pca_model.pkl')
+print("   ✅ pca_model.pkl")
+
+# Salvar DataFrame final com clusters
+df.to_csv('hotel_bookings_analyzed.csv', index=False)
+df.to_parquet('hotel_bookings_analyzed.parquet', index=False)
+print("   ✅ hotel_bookings_analyzed.csv")
+print("   ✅ hotel_bookings_analyzed.parquet")
+
+# Criar resumo geral
+summary = {
+    'dataset': {
+        'total_samples': int(len(df)),
+        'features': len(numeric_cols),
+        'target_balance': float(df['is_canceled'].mean())
+    },
+    'clustering': {
+        'n_clusters': int(optimal_k),
+        'silhouette_score': float(silhouette_scores[best_k_idx]),
+        'cluster_sizes': {int(k): int(v) for k, v in cluster_counts.items()}
+    },
+    'cluster_characteristics': cluster_analysis.to_dict()
+}
+
+import json
+with open('ml_summary.json', 'w', encoding='utf-8') as f:
+    json.dump(summary, f, indent=4, ensure_ascii=False)
+print("   ✅ ml_summary.json")
+
+# ----------------------------------------------------------------------------
+# Resumo Final
+# ----------------------------------------------------------------------------
+print("\n" + "="*80)
+print("🎉 PROCESSO DE MACHINE LEARNING CONCLUÍDO!")
+print("="*80)
+
+print("\n📊 RESUMO GERAL:")
+print(f"   • Dataset: {len(df):,} amostras")
+print(f"   • Features: {len(numeric_cols)}")
+print(f"   • Clusters identificados: {optimal_k}")
+print(f"   • Silhouette Score: {silhouette_scores[best_k_idx]:.4f}")
+
+print("\n📁 ARQUIVOS GERADOS:")
+print("   Modelos:")
+print("      • kmeans_model.pkl")
+print("      • cluster_scaler.pkl")
+print("      • cluster_imputer.pkl")
+print("      • pca_model.pkl")
+print("   \n   Dados:")
+print("      • hotel_bookings_analyzed.csv")
+print("      • hotel_bookings_analyzed.parquet")
+print("      • cluster_analysis.csv")
+print("      • ml_summary.json")
+print("   \n   Visualizações:")
+print("      • cluster_elbow_method.png")
+print("      • cluster_visualization.png")
+print("      • cluster_characteristics.png")
+
+print("\n💡 PRÓXIMOS PASSOS:")
+print("   1. Revisar características dos clusters")
+print("   2. Criar estratégias específicas por cluster")
+print("   3. Implementar dashboard interativo")
+print("   4. Deploy do modelo em produção")
+
+print("\n" + "="*80)
+print("✅ ANÁLISE COMPLETA FINALIZADA COM SUCESSO!")
+print("="*80)
