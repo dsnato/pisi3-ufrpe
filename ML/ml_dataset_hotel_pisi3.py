@@ -9,7 +9,6 @@ Análise Completa: Pré-processamento, Treinamento e Otimização
 # ============================================================================
 
 import os
-import pathlib
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -20,6 +19,7 @@ os.environ['MKL_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 # Importações principais
+import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -41,16 +41,14 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 from sklearn.metrics import (accuracy_score, precision_score, recall_score,
-                            f1_score, confusion_matrix, classification_report)
+                            f1_score, confusion_matrix, classification_report,
+                            silhouette_score)
 
 # XGBoost
 import xgboost as xgb
-
-# K-Means
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
-from sklearn.metrics import silhouette_score
 
 print("="*80)
 print("🚀 INICIANDO PROCESSO DE MACHINE LEARNING")
@@ -61,7 +59,9 @@ print("="*80)
 # ----------------------------------------------------------------------------
 print("\n📂 [1/2] Carregando dados...")
 
-script_dir = pathlib.Path(__file__).resolve().parent
+from pathlib import Path
+
+script_dir = Path(__file__).resolve().parent
 data_dir = script_dir / 'data'
 parquet_file = script_dir / 'hotel_bookings.parquet'
 csv_file = script_dir / 'hotel_bookings.csv'
@@ -736,24 +736,10 @@ print(f"   • numeric_vs_categorical.png")
 # CLUSTERIZAÇÃO COM K-MEANS
 # ============================================================================
 
-
-# Defensive import in case script is run from here
-try:
-    from sklearn.cluster import KMeans
-except ImportError:
-    raise ImportError("scikit-learn is required for KMeans clustering.")
-
-print("="*80)
+print("\n" + "="*80)
 print("🔍 CLUSTERIZAÇÃO COM K-MEANS")
 print("="*80)
-
-# ----------------------------------------------------------------------------
-# Carregar dados
-# ----------------------------------------------------------------------------
-print("\n📂 Carregando dados...")
-
-df = pd.read_parquet('hotel_bookings_processed.parquet')
-print(f"   ✅ Dataset: {len(df):,} linhas")
+print(f"\n   ✅ Usando dados já carregados: {len(df):,} linhas")
 
 # ----------------------------------------------------------------------------
 # Preparar dados para clusterização
@@ -866,7 +852,6 @@ cluster_analysis.columns = [
 ]
 
 print("\n📋 CARACTERÍSTICAS POR CLUSTER:")
-from IPython.display import display
 display(cluster_analysis)
 
 # Salvar análise
@@ -1013,7 +998,6 @@ summary = {
     'cluster_characteristics': cluster_analysis.to_dict()
 }
 
-import json
 with open('ml_summary.json', 'w', encoding='utf-8') as f:
     json.dump(summary, f, indent=4, ensure_ascii=False)
 print("   ✅ ml_summary.json")

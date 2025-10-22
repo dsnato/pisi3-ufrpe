@@ -14,15 +14,20 @@ print("="*80)
 
 # Importação de Bibliotecas
 import os
-import zipfile
+import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from IPython.display import display
 import warnings
-import json
 warnings.filterwarnings('ignore')
+
+# IPython display
+try:
+    from IPython.display import display
+except ImportError:
+    def display(obj):
+        print(obj)
 
 # Tentar importar missingno (opcional)
 try:
@@ -38,6 +43,10 @@ sns.set_palette("husl")
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', 1000)
 
+# Constantes
+MONTH_ORDER = ['January', 'February', 'March', 'April', 'May', 'June',
+               'July', 'August', 'September', 'October', 'November', 'December']
+
 print("\n✅ Bibliotecas importadas com sucesso!")
 
 # ============================================================================
@@ -49,22 +58,8 @@ print("📂 CARREGAMENTO DO DATASET")
 print("="*80)
 
 # Configuração de arquivos
-zip_file_name = "hotel-booking-demand.zip"
 csv_file_name = "hotel_bookings.csv"
 parquet_file_name = "hotel_bookings.parquet"
-
-# Descompactar se necessário
-if os.path.exists(zip_file_name) and not os.path.exists(csv_file_name):
-    print(f"\n📦 Descompactando: {zip_file_name}")
-    with zipfile.ZipFile(zip_file_name, 'r') as zip_ref:
-        zip_ref.extractall()
-    print("✅ Dataset descompactado!")
-    
-    # Descobrir nome do arquivo CSV
-    csv_files = [f for f in os.listdir() if f.endswith('.csv')]
-    if csv_files:
-        csv_file_name = csv_files[0]
-        print(f"📄 Arquivo CSV encontrado: {csv_file_name}")
 
 # Carregar dataset (prioriza Parquet por ser mais rápido)
 if os.path.exists(parquet_file_name):
@@ -84,7 +79,7 @@ else:
     raise FileNotFoundError(
         f"❌ Dataset não encontrado!\n"
         f"   Procurados: {parquet_file_name}, {csv_file_name}\n"
-        f"   Para baixar: kaggle datasets download -d jessemostipak/hotel-booking-demand"
+        f"   Coloque o arquivo na pasta do projeto ou no diretório ML/data/"
     )
 
 # Informações básicas
@@ -92,6 +87,7 @@ print(f"\n📊 DIMENSÕES DO DATASET:")
 print(f"   • Linhas: {df.shape[0]:,}")
 print(f"   • Colunas: {df.shape[1]}")
 print(f"   • Memória: {df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
+
 # ============================================================================
 # VISÃO GERAL E INFORMAÇÕES DO DATASET
 # ============================================================================
@@ -304,11 +300,8 @@ print(f"   • Período: {df['arrival_date'].min()} a {df['arrival_date'].max()}
 # ----------------------------
 print("\n📊 RESERVAS AO LONGO DO TEMPO:")
 
-month_order = ['January', 'February', 'March', 'April', 'May', 'June',
-               'July', 'August', 'September', 'October', 'November', 'December']
-
 monthly_bookings = df.groupby(['arrival_date_year', 'arrival_date_month']).size().unstack(0)
-monthly_bookings = monthly_bookings.reindex(month_order)
+monthly_bookings = monthly_bookings.reindex(MONTH_ORDER)
 
 fig, ax = plt.subplots(figsize=(15, 6))
 monthly_bookings.plot(kind='bar', ax=ax, width=0.8)
@@ -331,7 +324,7 @@ print(f"   • Menor demanda: {monthly_total.idxmin()} ({monthly_total.min():,} 
 print("\n📊 TAXA DE CANCELAMENTO MENSAL:")
 
 monthly_cancel = df.groupby('arrival_date_month')['is_canceled'].mean() * 100
-monthly_cancel = monthly_cancel.reindex(month_order)
+monthly_cancel = monthly_cancel.reindex(MONTH_ORDER)
 
 fig, ax = plt.subplots(figsize=(14, 6))
 ax.plot(range(len(monthly_cancel)), monthly_cancel.values, 
@@ -456,9 +449,6 @@ print("\n" + "="*80)
 print("💰 ANÁLISE DE PREÇOS (ADR - Average Daily Rate)")
 print("="*80)
 
-month_order = ['January', 'February', 'March', 'April', 'May', 'June',
-               'July', 'August', 'September', 'October', 'November', 'December']
-
 fig, axes = plt.subplots(2, 2, figsize=(15, 10))
 
 # Distribuição do ADR
@@ -480,7 +470,7 @@ axes[1, 0].set_xlabel('Cancelado (0=Não, 1=Sim)')
 
 # Preço médio por mês
 monthly_adr = df.groupby('arrival_date_month')['adr'].mean()
-monthly_adr = monthly_adr.reindex(month_order)
+monthly_adr = monthly_adr.reindex(MONTH_ORDER)
 
 monthly_adr.plot(kind='bar', ax=axes[1, 1], color='green', edgecolor='black')
 axes[1, 1].set_title('Preço Médio (ADR) por Mês', fontweight='bold')
@@ -575,17 +565,8 @@ plt.show()
 # ANÁLISE DE SEGMENTOS E CORRELAÇÕES
 # ============================================================================
 
-plt.style.use('ggplot')
-sns.set_palette("husl")
-
-df = pd.read_parquet("hotel_bookings.parquet")
-print(f"✅ Dataset carregado: {df.shape[0]:,} linhas\n")
-
-# ----------------------------------------------------------------------------
-# Análise de Segmento de Mercado e Canal de Distribuição
-# ----------------------------------------------------------------------------
-print("="*80)
-print("ANÁLISE DE SEGMENTO DE MERCADO E CANAL DE DISTRIBUIÇÃO")
+print("\n" + "="*80)
+print("📊 ANÁLISE DE SEGMENTO DE MERCADO E CANAL DE DISTRIBUIÇÃO")
 print("="*80)
 
 fig, axes = plt.subplots(2, 2, figsize=(15, 10))
@@ -642,7 +623,7 @@ for segment, count in market_segment_counts.items():
 # Análise de Tipos de Cliente
 # ----------------------------------------------------------------------------
 print("\n" + "="*80)
-print("ANÁLISE DE TIPOS DE CLIENTE")
+print("👥 ANÁLISE DE TIPOS DE CLIENTE")
 print("="*80)
 
 fig, axes = plt.subplots(1, 2, figsize=(15, 5))
@@ -688,7 +669,7 @@ display(customer_analysis)
 # Matriz de Correlações
 # ----------------------------------------------------------------------------
 print("\n" + "="*80)
-print("MATRIZ DE CORRELAÇÕES")
+print("🔗 MATRIZ DE CORRELAÇÕES")
 print("="*80)
 
 numeric_cols = df.select_dtypes(include=[np.number]).columns
@@ -717,7 +698,7 @@ display(strong_correlations)
 # Análise Multivariada Avançada
 # ----------------------------------------------------------------------------
 print("\n" + "="*80)
-print("ANÁLISE MULTIVARIADA AVANÇADA")
+print("📈 ANÁLISE MULTIVARIADA AVANÇADA")
 print("="*80)
 
 # Hotel vs Lead Time vs Cancelamento
@@ -754,7 +735,7 @@ plt.show()
 # Insights e Recomendações Finais
 # ----------------------------------------------------------------------------
 print("\n" + "="*80)
-print("INSIGHTS E RECOMENDAÇÕES FINAIS")
+print("💡 INSIGHTS E RECOMENDAÇÕES FINAIS")
 print("="*80)
 
 cancel_rate = df['is_canceled'].mean() * 100
@@ -795,7 +776,7 @@ print("🤖 5. Otimização: GridSearch para hiperparâmetros")
 # Salvamento de Resultados
 # ----------------------------------------------------------------------------
 print("\n" + "="*80)
-print("SALVANDO RESULTADOS")
+print("💾 SALVANDO RESULTADOS")
 print("="*80)
 
 df.to_csv('hotel_bookings_analyzed.csv', index=False)

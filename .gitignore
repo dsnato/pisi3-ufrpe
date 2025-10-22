@@ -1,0 +1,30 @@
+# Arquivos de modelo (muito grandes para GitHub)
+*.pkl
+
+# Arquivos de dados grandes
+*.parquet
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Notebooks
+.ipynb_checkpoints/
