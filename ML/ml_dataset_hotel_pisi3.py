@@ -79,3 +79,104 @@ display(df.info())
 print("\nTarget distribution (is_canceled):")
 display(df['is_canceled'].value_counts(normalize=False))
 display(df.isnull().sum().sort_values(ascending=False).head(20))
+
+df = df.copy()
+
+# Features novas (como no seu script)
+df['total_guests'] = df['adults'].fillna(0) + df['children'].fillna(0) + df['babies'].fillna(0)
+df['total_nights'] = df['stays_in_weekend_nights'].fillna(0) + df['stays_in_week_nights'].fillna(0)
+df['has_special_request'] = (df['total_of_special_requests'].fillna(0) > 0).astype(int)
+df['is_family'] = ((df['adults'].fillna(0) > 0) & ((df['children'].fillna(0) > 0) | (df['babies'].fillna(0) > 0))).astype(int)
+
+# Tratar faltantes simples
+df['company'].fillna(0, inplace=True)
+df['agent'].fillna(0, inplace=True)
+df['country'].fillna('Unknown', inplace=True)
+df['children'].fillna(0, inplace=True)
+
+# Remover outliers simples de ADR (mantemos <1000)
+df = df[df['adr'] < 1000].reset_index(drop=True)
+
+# Features escolhidas (base)
+features = [
+    'hotel', 'lead_time', 'arrival_date_month', 'arrival_date_week_number',
+    'arrival_date_day_of_month', 'stays_in_weekend_nights', 'stays_in_week_nights',
+    'adults', 'children', 'babies', 'country', 'market_segment',
+    'distribution_channel', 'is_repeated_guest', 'previous_cancellations',
+    'previous_bookings_not_canceled', 'reserved_room_type', 'assigned_room_type',
+    'booking_changes', 'deposit_type', 'agent', 'company', 'customer_type',
+    'adr', 'required_car_parking_spaces', 'total_of_special_requests',
+    'total_guests', 'total_nights', 'has_special_request', 'is_family'
+]
+target = 'is_canceled'
+
+X = df[features].copy()
+y = df[target].copy()
+
+# Separar colunas numéricas e categóricas
+numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+categorical_cols = X.select_dtypes(include=['object']).columns.tolist()
+
+print(f"Numéricas: {len(numeric_cols)} - Categóricas: {len(categorical_cols)}")
+
+# Preprocessor: imputers, scaler, onehot
+numeric_transformer = Pipeline(steps=[
+    ('imputer', SimpleImputer(strategy='median')),
+    ('scaler', StandardScaler())
+])
+
+categorical_transformer = Pipeline(steps=[
+    ('imputer', SimpleImputer(strategy='constant', fill_value='Unknown')),
+    ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+])
+
+preprocessor = ColumnTransformer(transformers=[
+    ('num', numeric_transformer, numeric_cols),
+    ('cat', categorical_transformer, categorical_cols)
+])
+
+# Salvar artefatos básicos para uso posterior
+joblib.dump(preprocessor, 'preprocessor.pkl')
+joblib.dump(features, 'features_list.pkl')
+df.to_parquet('hotel_bookings_processed.parquet', index=False)
+print("Preprocessor salvo: preprocessor.pkl, dataset salvo: hotel_bookings_processed.parquet")
+
+# Split estratificado
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+print(f"Treino: {len(X_train):,} - Teste: {len(X_test):,}")
+print("Balance (treino):")
+print(y_train.value_counts(normalize=True))
+
+# Pipeline com SMOTE aplicado APÓS o pré-processamento numérico/categórico:
+# Usamos ImbPipeline para garantir que SMOTE opere no espaço numérico transformado.
+smote = SMOTE(random_state=42)
+
+rf = RandomForestClassifier(random_state=42, n_jobs=1)
+xgb_clf = xgb.XGBClassifier(random_state=42, use_label_encoder=False, eval_metric='logloss', n_jobs=1)
+logreg = LogisticRegression(max_iter=200, random_state=42)
+
+# Construir pipelines modelos (ex.: RF)
+pipeline_rf = ImbPipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('smote', smote),
+    ('classifier', rf)
+])
+
+pipeline_xgb = ImbPipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('smote', smote),
+    ('classifier', xgb_clf)
+])
+
+pipeline_log = ImbPipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('smote', smote),
+    ('classifier', logreg)
+])
+
+# Salvar pipelines iniciais (sem fit)
+joblib.dump({'rf': pipeline_rf, 'xgb': pipeline_xgb, 'log': pipeline_log}, 'pipelines_initial.pkl')
+print("Pipelines iniciais salvos: pipelines_initial.pkl")
