@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-print("🚀 PARTE 2: INICIANDO - BASE + ANÁLISE EXPLORATÓRIA (EDA)")
+print("🚀 PARTE 3: INICIANDO - BASE + EDA + MACHINE LEARNING")
 
 # ============================================================================
 # PARTE 1: CONFIGURAÇÃO INICIAL E IMPORTAÇÕES
@@ -15,12 +15,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+# ML imports
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
+import xgboost as xgb
+
 # Configurações de estilo
 plt.style.use('ggplot')
 sns.set_palette("husl")
 pd.set_option('display.max_columns', None)
 
-print("✅ Dependências básicas carregadas!")
+print("✅ Todas as dependências carregadas (incluindo ML)!")
 
 # ============================================================================
 # PALETA DE CORES
@@ -35,8 +48,6 @@ COLORS = {
     'white': '#FFFFFF',
     'text': '#132F3B'
 }
-
-print("✅ Paleta de cores configurada!")
 
 # ============================================================================
 # CARREGAMENTO DOS DADOS
@@ -204,10 +215,182 @@ df = eda_results['df']
 
 print("✅ Análise exploratória concluída!")
 
+# ============================================================================
+# PARTE 3: MACHINE LEARNING
+# ============================================================================
+
 print("\n" + "=" * 80)
-print("🎉 PARTE 2 CONCLUÍDA COM SUCESSO!")
+print("🤖 PARTE 3: EXECUTANDO MODELAGEM DE MACHINE LEARNING")
+print("=" * 80)
+
+
+def prepare_ml_data(df):
+    """Prepara dados para modelagem de ML"""
+
+    print("🔧 Preparando dados para ML...")
+
+    # Features selecionadas
+    features = [
+        'hotel', 'lead_time', 'arrival_date_month', 'arrival_date_week_number',
+        'arrival_date_day_of_month', 'stays_in_weekend_nights', 'stays_in_week_nights',
+        'adults', 'children', 'babies', 'country', 'market_segment',
+        'distribution_channel', 'is_repeated_guest', 'previous_cancellations',
+        'previous_bookings_not_canceled', 'reserved_room_type', 'assigned_room_type',
+        'booking_changes', 'deposit_type', 'agent', 'company', 'customer_type',
+        'adr', 'required_car_parking_spaces', 'total_of_special_requests',
+        'total_guests', 'total_nights', 'has_special_request', 'is_family'
+    ]
+
+    # Garantir que todas as features existem
+    available_features = [f for f in features if f in df.columns]
+    missing_features = set(features) - set(available_features)
+
+    if missing_features:
+        print(f"⚠️  Features não encontradas: {missing_features}")
+
+    # Criar features faltantes se necessário
+    if 'is_family' not in df.columns:
+        df['is_family'] = ((df['adults'] > 0) & ((df['children'] > 0) | (df['babies'] > 0))).astype(int)
+
+    if 'total_guests' not in df.columns:
+        df['total_guests'] = df['adults'].fillna(0) + df['children'].fillna(0) + df['babies'].fillna(0)
+
+    if 'total_nights' not in df.columns:
+        df['total_nights'] = df['stays_in_weekend_nights'].fillna(0) + df['stays_in_week_nights'].fillna(0)
+
+    if 'has_special_request' not in df.columns:
+        df['has_special_request'] = (df['total_of_special_requests'].fillna(0) > 0).astype(int)
+
+    # Tratar valores faltantes apenas para colunas que existem
+    if 'company' in df.columns:
+        df['company'].fillna(0, inplace=True)
+    if 'agent' in df.columns:
+        df['agent'].fillna(0, inplace=True)
+    if 'country' in df.columns:
+        df['country'].fillna('Unknown', inplace=True)
+    if 'children' in df.columns:
+        df['children'].fillna(0, inplace=True)
+
+    # Remover outliers de ADR
+    df = df[df['adr'] < 1000].reset_index(drop=True)
+
+    # Usar apenas features disponíveis
+    X = df[available_features]
+    y = df['is_canceled']
+
+    print(f"✅ Dados preparados: {X.shape[0]:,} amostras, {X.shape[1]} features")
+    print(f"   Features utilizadas: {len(available_features)}")
+
+    return X, y, available_features
+
+
+def train_ml_models(X, y):
+    """Treina modelos de machine learning"""
+
+    print("🎯 Treinando modelos...")
+
+    # Separar colunas numéricas e categóricas
+    numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_cols = X.select_dtypes(include=['object']).columns.tolist()
+
+    print(f"   • {len(numeric_cols)} features numéricas")
+    print(f"   • {len(categorical_cols)} features categóricas")
+
+    # Pré-processador
+    numeric_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
+
+    categorical_transformer = Pipeline(steps=[
+        ('imputer', SimpleImputer(strategy='constant', fill_value='Unknown')),
+        ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+    ])
+
+    preprocessor = ColumnTransformer(transformers=[
+        ('num', numeric_transformer, numeric_cols),
+        ('cat', categorical_transformer, categorical_cols)
+    ])
+
+    # Split dos dados
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+
+    # Modelos
+    models = {
+        'RandomForest': RandomForestClassifier(n_estimators=50, max_depth=10, random_state=42, n_jobs=1),
+        'XGBoost': xgb.XGBClassifier(n_estimators=50, max_depth=6, random_state=42, eval_metric='logloss', n_jobs=1),
+        'LogisticRegression': LogisticRegression(random_state=42, max_iter=1000)
+    }
+
+    # Treinar e avaliar modelos
+    results = {}
+    feature_importance_df = None
+
+    for name, model in models.items():
+        print(f"   🚀 Treinando {name}...")
+
+        pipeline = ImbPipeline(steps=[
+            ('preprocessor', preprocessor),
+            ('smote', SMOTE(random_state=42)),
+            ('classifier', model)
+        ])
+
+        # Treinar modelo
+        pipeline.fit(X_train, y_train)
+
+        # Fazer previsões
+        y_pred = pipeline.predict(X_test)
+        y_proba = pipeline.predict_proba(X_test)[:, 1]
+
+        # Calcular métricas
+        accuracy = accuracy_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred)
+        auc = roc_auc_score(y_test, y_proba)
+
+        results[name] = {
+            'model': pipeline,
+            'accuracy': accuracy,
+            'f1_score': f1,
+            'auc': auc,
+            'predictions': y_pred,
+            'probabilities': y_proba
+        }
+
+        print(f"     ✅ {name}: Accuracy={accuracy:.4f}, F1={f1:.4f}, AUC={auc:.4f}")
+
+        # Extrair importância das features para o melhor modelo
+        if name == 'RandomForest' and hasattr(pipeline.named_steps['classifier'], 'feature_importances_'):
+            feature_names = pipeline.named_steps['preprocessor'].get_feature_names_out()
+            importances = pipeline.named_steps['classifier'].feature_importances_
+
+            feature_importance_df = pd.DataFrame({
+                'feature': feature_names,
+                'importance': importances
+            }).sort_values('importance', ascending=False)
+
+    # Selecionar melhor modelo
+    best_model_name = max(results.keys(), key=lambda x: results[x]['f1_score'])
+    best_model = results[best_model_name]['model']
+
+    print(f"🏆 Melhor modelo: {best_model_name} (F1: {results[best_model_name]['f1_score']:.4f})")
+
+    return results, best_model, feature_importance_df, X_test, y_test
+
+
+# Preparar e treinar modelos (usando amostra para velocidade)
+print("\n📊 Para treinamento de ML, usando amostra de 15.000 registros (velocidade)...")
+df_ml_sample = df.sample(n=min(15000, len(df)), random_state=42)
+X, y, features = prepare_ml_data(df_ml_sample)
+ml_results, best_model, feature_importance_df, X_test, y_test = train_ml_models(X, y)
+
+print("✅ Modelagem de ML concluída!")
+
+print("\n" + "=" * 80)
+print("🎉 PARTE 3 CONCLUÍDA COM SUCESSO!")
 print("=" * 80)
 print(f"✅ {eda_results['total_bookings']:,} reservas analisadas")
-print(f"✅ Taxa de cancelamento: {eda_results['cancel_rate']:.2f}%")
-print(f"✅ ADR médio: ${eda_results['avg_adr']:.2f}")
-print("📊 Dados prontos para Machine Learning!")
+print(f"✅ {len(ml_results)} modelos de ML treinados")
+print(f"✅ Melhor modelo: {max(ml_results.keys(), key=lambda x: ml_results[x]['f1_score'])}")
+print("📊 Dados prontos para Clustering!")
