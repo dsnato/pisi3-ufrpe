@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
-print("🚀 PARTE 3: INICIANDO - BASE + EDA + MACHINE LEARNING")
+print("🚀 INICIANDO DASHBOARD - HOTEL BOOKING ANALYSIS")
 
 # ============================================================================
-# PARTE 1: CONFIGURAÇÃO INICIAL E IMPORTAÇÕES
+# CONFIGURAÇÃO INICIAL E IMPORTAÇÕES
 # ============================================================================
 
 import os
@@ -28,12 +28,16 @@ from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 import xgboost as xgb
 
+# Clustering imports
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+
 # Configurações de estilo
 plt.style.use('ggplot')
 sns.set_palette("husl")
 pd.set_option('display.max_columns', None)
 
-print("✅ Todas as dependências carregadas (incluindo ML)!")
+print("✅ Todas as dependências carregadas!")
 
 # ============================================================================
 # PALETA DE CORES
@@ -54,7 +58,7 @@ COLORS = {
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("📂 PARTE 1: CARREGAMENTO DOS DADOS")
+print("📂 CARREGAMENTO DOS DADOS")
 print("=" * 80)
 
 
@@ -119,8 +123,6 @@ if df is None:
         'arrival_date_month': np.random.choice(['January', 'February', 'March', 'April', 'May', 'June',
                                                'July', 'August', 'September', 'October', 'November', 'December'],
                                               n_samples),
-        'arrival_date_week_number': np.random.randint(1, 53, n_samples),
-        'arrival_date_day_of_month': np.random.randint(1, 29, n_samples),
         'country': np.random.choice(['PRT', 'GBR', 'FRA', 'ESP', 'DEU', 'ITA'], n_samples),
         'market_segment': np.where(profiles == 0, 
                                   np.random.choice(['Corporate', 'Online TA'], n_samples, p=[0.7, 0.3]),
@@ -128,10 +130,6 @@ if df is None:
         'distribution_channel': np.random.choice(['TA/TO', 'Direct', 'Corporate'], n_samples),
         'is_repeated_guest': np.random.choice([0, 1], n_samples, p=[0.95, 0.05]),
         'previous_cancellations': np.random.poisson(0.1, n_samples),
-        'previous_bookings_not_canceled': np.random.poisson(0.2, n_samples),
-        'reserved_room_type': np.random.choice(['A', 'B', 'C', 'D', 'E'], n_samples),
-        'assigned_room_type': np.random.choice(['A', 'B', 'C', 'D', 'E'], n_samples),
-        'booking_changes': np.random.poisson(0.3, n_samples),
         'customer_type': 'Transient',
         'deposit_type': 'No Deposit',
         'stays_in_weekend_nights': np.where(profiles == 1, 
@@ -143,20 +141,18 @@ if df is None:
                                                 np.random.choice([3, 4, 5, 7], n_samples),
                                                 np.random.choice([1, 2, 3], n_samples))),
         'required_car_parking_spaces': np.random.choice([0, 1], n_samples, p=[0.9, 0.1]),
-        'total_of_special_requests': np.random.choice([0, 1, 2], n_samples, p=[0.7, 0.2, 0.1]),
-        'agent': np.random.choice([0, 1, 9, 240], n_samples),
-        'company': np.random.choice([0, 40, 223], n_samples)
+        'total_of_special_requests': np.random.choice([0, 1, 2], n_samples, p=[0.7, 0.2, 0.1])
     }
 
     df = pd.DataFrame(demo_data)
     print("✅ Dados de demonstração criados com 3 perfis distintos de clientes!")
 
 # ============================================================================
-# PARTE 2: ANÁLISE EXPLORATÓRIA (EDA)
+# ANÁLISE EXPLORATÓRIA (EDA)
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("🔍 PARTE 2: EXECUTANDO ANÁLISE EXPLORATÓRIA (EDA)")
+print("🔍 EXECUTANDO ANÁLISE EXPLORATÓRIA (EDA)")
 print("=" * 80)
 
 
@@ -216,11 +212,11 @@ df = eda_results['df']
 print("✅ Análise exploratória concluída!")
 
 # ============================================================================
-# PARTE 3: MACHINE LEARNING
+# MACHINE LEARNING
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("🤖 PARTE 3: EXECUTANDO MODELAGEM DE MACHINE LEARNING")
+print("🤖 EXECUTANDO MODELAGEM DE MACHINE LEARNING")
 print("=" * 80)
 
 
@@ -386,11 +382,106 @@ X, y, features = prepare_ml_data(df_ml_sample)
 ml_results, best_model, feature_importance_df, X_test, y_test = train_ml_models(X, y)
 
 print("✅ Modelagem de ML concluída!")
+print(f"📈 Visualizações usarão dataset completo: {len(df):,} registros")
+
+# ============================================================================
+# CLUSTERING
+# ============================================================================
 
 print("\n" + "=" * 80)
-print("🎉 PARTE 3 CONCLUÍDA COM SUCESSO!")
+print("🔮 EXECUTANDO ANÁLISE DE CLUSTERS")
+print("=" * 80)
+
+
+def perform_clustering(df):
+    """Executa análise de clusters"""
+
+    print("🎯 Realizando análise de clusters...")
+
+    # Selecionar features numéricas para clustering
+    numeric_features = [
+        'lead_time', 'adr', 'adults', 'children', 'babies',
+        'stays_in_weekend_nights', 'stays_in_week_nights',
+        'previous_cancellations', 'booking_changes',
+        'required_car_parking_spaces', 'total_of_special_requests'
+    ]
+
+    # Garantir que as features existem
+    available_numeric = [f for f in numeric_features if f in df.columns]
+    X_cluster = df[available_numeric].fillna(0)
+
+    # Normalizar dados
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_cluster)
+
+    # Aplicar K-means
+    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+    clusters = kmeans.fit_predict(X_scaled)
+
+    print(f"   • {len(set(clusters))} clusters identificados")
+
+    # PCA para visualização
+    pca = PCA(n_components=2, random_state=42)
+    X_pca = pca.fit_transform(X_scaled)
+    
+    # Variância explicada pelos componentes principais
+    variance_explained = pca.explained_variance_ratio_
+    print(f"   • Variância explicada PC1: {variance_explained[0]:.2%}")
+    print(f"   • Variância explicada PC2: {variance_explained[1]:.2%}")
+    print(f"   • Variância total explicada: {sum(variance_explained):.2%}")
+
+    # Análise dos clusters
+    df_clustered = df.copy()
+    df_clustered['cluster'] = clusters
+
+    cluster_analysis = df_clustered.groupby('cluster').agg({
+        'is_canceled': 'mean',
+        'adr': 'mean',
+        'lead_time': 'mean',
+        'total_guests': 'mean',
+        'total_nights': 'mean'
+    }).round(3)
+
+    print("📊 Análise dos clusters:")
+    print(cluster_analysis)
+    
+    # Criar labels descritivos para os clusters baseados nas características
+    cluster_labels = []
+    for i in range(3):
+        stats = cluster_analysis.loc[i]
+        if stats['adr'] > cluster_analysis['adr'].mean() and stats['lead_time'] < cluster_analysis['lead_time'].mean():
+            label = f"Cluster {i}: Corporativo"
+        elif stats['total_guests'] > 2 and stats['total_nights'] > cluster_analysis['total_nights'].mean():
+            label = f"Cluster {i}: Famílias"
+        else:
+            label = f"Cluster {i}: Econômico"
+        cluster_labels.append(label)
+    
+    print(f"\n📋 Perfis dos clusters:")
+    for label in cluster_labels:
+        print(f"   • {label}")
+
+    return {
+        'clusters': clusters,
+        'X_pca': X_pca,
+        'cluster_analysis': cluster_analysis,
+        'kmeans': kmeans,
+        'variance_explained': variance_explained,
+        'cluster_labels': cluster_labels
+    }
+
+
+# Executar clustering (usando amostra para velocidade)
+print("\n🔮 Para clustering, usando amostra de 10.000 registros (performance)...")
+df_cluster_sample = df.sample(n=min(10000, len(df)), random_state=42)
+clustering_results = perform_clustering(df_cluster_sample)
+
+print("✅ Análise de clusters concluída!")
+
+print("\n" + "=" * 80)
+print("🎉 PROCESSAMENTO CONCLUÍDO COM SUCESSO!")
 print("=" * 80)
 print(f"✅ {eda_results['total_bookings']:,} reservas analisadas")
 print(f"✅ {len(ml_results)} modelos de ML treinados")
-print(f"✅ Melhor modelo: {max(ml_results.keys(), key=lambda x: ml_results[x]['f1_score'])}")
-print("📊 Dados prontos para Clustering!")
+print(f"✅ {len(set(clustering_results['clusters']))} clusters identificados")
+print(f"✅ Dados prontos para visualização no dashboard")
