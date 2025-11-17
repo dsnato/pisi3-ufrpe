@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
 from pprint import pprint
+import statistics
 
 # sklearn
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score, cross_validate
@@ -180,3 +181,87 @@ pipeline_log = ImbPipeline(steps=[
 # Salvar pipelines iniciais (sem fit)
 joblib.dump({'rf': pipeline_rf, 'xgb': pipeline_xgb, 'log': pipeline_log}, 'pipelines_initial.pkl')
 print("Pipelines iniciais salvos: pipelines_initial.pkl")
+
+# Cell 5/10 - Treinamento: cross-val por 10 seeds (agregação de métricas)
+
+models = {
+    'RandomForest': pipeline_rf,
+    'XGBoost': pipeline_xgb,
+    'LogisticRegression': pipeline_log
+}
+
+seeds = [0, 7, 13, 21, 42, 99, 123, 2023, 327, 999]
+cv = StratifiedKFold(n_splits=5, shuffle=True)
+
+results_by_model = {}
+
+for name, pipeline in models.items():
+    print(f"\n=== Modelo: {name} ===")
+    metrics_per_seed = []
+    for seed in seeds:
+        # cross_validate para obter múltiplas métricas
+        scores = cross_validate(pipeline, X_train, y_train,
+                                scoring=['accuracy', 'precision', 'recall', 'f1', 'roc_auc'],
+                                cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=seed),
+                                n_jobs=1, return_train_score=False)
+        # agregar médias por seed
+        seed_metrics = {m: float(np.mean(scores[f'test_{m}'])) for m in ['accuracy','precision','recall','f1','roc_auc']}
+        seed_metrics['seed'] = seed
+        metrics_per_seed.append(seed_metrics)
+        print(f" seed {seed}: f1={seed_metrics['f1']:.4f} roc_auc={seed_metrics['roc_auc']:.4f}")
+    # agregados
+    df_metrics = pd.DataFrame(metrics_per_seed)
+    summary = df_metrics.mean().to_dict()
+    summary['std'] = df_metrics.std().to_dict()
+    results_by_model[name] = {'per_seed': df_metrics, 'summary': summary}
+    print(f" -> média F1 across seeds: {summary['f1']:.4f} (std {summary['std']['f1']:.4f})")
+
+# Salvar resultados resumidos
+joblib.dump(results_by_model, 'cv_results_by_model.pkl')
+print("\nResultados de cross-val salvos: cv_results_by_model.pkl")
+
+# Cell 6/10 - Fit final (usar seed 42) e diagnóstico treino vs teste (overfitting)
+best_models = {}
+for name, info in results_by_model.items():
+    # escolher modelo com maior mean f1 across seeds
+    mean_f1 = info['summary']['f1']
+    print(f"Modelo {name} mean_f1={mean_f1:.4f}")
+
+# Suponha que RandomForest foi o melhor — vamos treinar todos com seed=42 e comparar
+final_seed = 42
+fitted_models = {}
+
+for name, pipeline in models.items():
+    print(f"\nFit final: {name}")
+    pipeline.set_params(classifier__random_state=final_seed) if hasattr(pipeline.named_steps['classifier'],'random_state') else None
+    pipeline.fit(X_train, y_train)
+    fitted_models[name] = pipeline
+    # Métricas no treino
+    y_train_pred = pipeline.predict(X_train)
+    y_train_proba = pipeline.predict_proba(X_train)[:,1] if hasattr(pipeline.named_steps['classifier'],'predict_proba') else None
+    train_f1 = f1_score(y_train, y_train_pred)
+    train_acc = accuracy_score(y_train, y_train_pred)
+    # Métricas no teste
+    y_test_pred = pipeline.predict(X_test)
+    y_test_proba = pipeline.predict_proba(X_test)[:,1] if hasattr(pipeline.named_steps['classifier'],'predict_proba') else None
+    test_f1 = f1_score(y_test, y_test_pred)
+    test_acc = accuracy_score(y_test, y_test_pred)
+    print(f" Train Acc: {train_acc:.4f} F1: {train_f1:.4f} | Test Acc: {test_acc:.4f} F1: {test_f1:.4f}")
+    # Diagnóstico simples de overfitting
+    gap = train_f1 - test_f1
+    if gap > 0.10:
+        print("  ⚠️ Possível overfitting (gap F1 train - test > 0.10).")
+    else:
+        print("  ✓ Gap aceitável.")
+    # salvar modelo
+    joblib.dump(pipeline, f"final_model_{name.lower()}.pkl")
+    print(f"  Modelo salvo: final_model_{name.lower()}.pkl")
+
+# Selecionar melhor modelo por test F1
+test_f1s = {}
+for name, pipeline in fitted_models.items():
+    y_test_pred = pipeline.predict(X_test)
+    test_f1s[name] = f1_score(y_test, y_test_pred)
+best_model_name = max(test_f1s, key=test_f1s.get)
+print(f"\nMelhor modelo (por F1 no teste): {best_model_name} -> {test_f1s[best_model_name]:.4f}")
+joblib.dump(fitted_models[best_model_name], 'best_model.pkl')
