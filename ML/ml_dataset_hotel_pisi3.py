@@ -52,8 +52,6 @@ print(" imbalanced-learn (SMOTE): https://imbalanced-learn.org/stable/")
 print(" shap: https://shap.readthedocs.io/")
 print(" umap-learn: https://umap-learn.readthedocs.io/")
 
-import pathlib
-import pandas as pd # Adicionado import pandas
 script_dir = pathlib.Path.cwd()
 files = {
     'parquet': script_dir / 'hotel_bookings.parquet',
@@ -464,3 +462,82 @@ else:
 print("\n✅ Análise de explicabilidade concluída!")
 print(f"💾 Resultados salvos em: {SHAP_CACHE_FILE}")
 print("=" * 60)
+
+# Cell 9/10 - Clustering com 10 seeds, k=3; salvar e analisar clusters
+
+
+df_proc = pd.read_parquet('hotel_bookings_processed.parquet')  # do cell 3
+numeric_cols_cluster = df_proc.select_dtypes(include=[np.number]).columns.tolist()
+
+X_cluster = df_proc[numeric_cols_cluster].copy()
+imputer = SimpleImputer(strategy='median')
+scaler = StandardScaler()
+X_cluster_imp = imputer.fit_transform(X_cluster)
+X_cluster_scaled = scaler.fit_transform(X_cluster_imp)
+
+# Testar KMeans com 10 seeds e fixar n_clusters=3
+seeds = [0, 7, 13, 21, 42, 99, 123, 2023, 327, 999]
+n_clusters = 3
+kmeans_models = {}
+sil_scores = {}
+
+for seed in seeds:
+    k = KMeans(n_clusters=n_clusters, random_state=seed, n_init=10)
+    labels = k.fit_predict(X_cluster_scaled)
+    sil = silhouette_score(X_cluster_scaled, labels)
+    sil_scores[seed] = sil
+    kmeans_models[seed] = {'model': k, 'labels': labels}
+    print(f"seed {seed}: silhouette={sil:.4f}")
+
+# Escolher seed com melhor silhouette
+best_seed = max(sil_scores, key=sil_scores.get)
+best_kmeans = kmeans_models[best_seed]['model']
+df_proc['cluster'] = kmeans_models[best_seed]['labels']
+
+print(f"Melhor seed: {best_seed} com silhouette {sil_scores[best_seed]:.4f}")
+# Análise por cluster
+cluster_analysis = df_proc.groupby('cluster').agg({
+    'is_canceled':'mean',
+    'adr':'mean',
+    'lead_time':'mean',
+    'total_guests':'mean',
+    'total_nights':'mean',
+    'total_of_special_requests':'mean'
+}).round(3)
+display(cluster_analysis)
+
+# Salvar objetos
+joblib.dump(best_kmeans, 'kmeans_best_seed.pkl')
+joblib.dump(scaler, 'cluster_scaler.pkl')
+joblib.dump(imputer, 'cluster_imputer.pkl')
+df_proc.to_parquet('hotel_bookings_analyzed.parquet', index=False)
+print("KMeans salvo: kmeans_best_seed.pkl, dados salvos: hotel_bookings_analyzed.parquet")
+
+# Cell 10/10 - DR: PCA, t-SNE, UMAP (visualização)
+
+# Use X_cluster_scaled from previous cell
+# PCA
+pca = PCA(n_components=2, random_state=42)
+X_pca = pca.fit_transform(X_cluster_scaled)
+print(f"PCA explained var: PC1 {pca.explained_variance_ratio_[0]*100:.2f}% PC2 {pca.explained_variance_ratio_[1]*100:.2f}%")
+
+plt.figure(figsize=(8,6))
+sns.scatterplot(x=X_pca[:,0], y=X_pca[:,1], hue=df_proc['cluster'], palette='tab10', s=20)
+plt.title('PCA - Visualização de 3 clusters')
+plt.show()
+
+# t-SNE (pode ser lento) - usar perplexity ~30
+tsne = TSNE(n_components=2, random_state=42, init='pca', learning_rate='auto')
+X_tsne = tsne.fit_transform(X_cluster_scaled)
+plt.figure(figsize=(8,6))
+sns.scatterplot(x=X_tsne[:,0], y=X_tsne[:,1], hue=df_proc['cluster'], palette='tab10', s=20)
+plt.title('t-SNE - Visualização de 3 clusters')
+plt.show()
+
+# UMAP
+reducer = umap.UMAP(n_components=2, random_state=42)
+X_umap = reducer.fit_transform(X_cluster_scaled)
+plt.figure(figsize=(8,6))
+sns.scatterplot(x=X_umap[:,0], y=X_umap[:,1], hue=df_proc['cluster'], palette='tab10', s=20)
+plt.title('UMAP - Visualização de 3 clusters')
+plt.show()
