@@ -291,3 +291,176 @@ if y_test_proba is not None:
     print(f"AUC: {auc:.4f}")
 else:
     print("Probabilidades não disponíveis para ROC/AUC.")
+
+# Cell 8/10 - SHAP Explainability (OTIMIZADO COM SALVAMENTO)
+print("🔍 Iniciando análise de explicabilidade do modelo...")
+print("=" * 60)
+
+from sklearn.inspection import permutation_importance
+
+# Configurações otimizadas
+SHAP_CACHE_FILE = 'shap_values_cache.pkl'
+SAMPLE_SIZE = 50  # Amostra reduzida para SHAP
+BACKGROUND_SIZE = 20  # Tamanho do background para KernelExplainer
+
+def load_or_compute_shap():
+    """Carrega resultados do cache ou calcula novos"""
+
+    # Verificar se cache existe
+    if os.path.exists(SHAP_CACHE_FILE):
+        print("📁 Cache encontrado! Carregando resultados SHAP pré-computados...")
+        return joblib.load(SHAP_CACHE_FILE)
+
+    print("🔄 Cache não encontrado. Calculando SHAP (pode demorar alguns minutos)...")
+
+    # 1. Carregar modelo e pré-processador
+    print("📥 Carregando modelo treinado...")
+    best_pipeline = joblib.load('best_model.pkl')
+    clf = best_pipeline.named_steps['classifier']
+    preproc = best_pipeline.named_steps['preprocessor']
+
+    # 2. Obter nomes das features transformadas
+    print("🔧 Preparando nomes das features...")
+    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_cols = X_train.select_dtypes(include=['object']).columns.tolist()
+
+    cat_feature_names = preproc.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out(categorical_cols)
+    feature_names_transformed = numeric_cols + list(cat_feature_names)
+
+    print(f"   • {len(numeric_cols)} features numéricas")
+    print(f"   • {len(categorical_cols)} features categóricas → {len(cat_feature_names)} após one-hot")
+    print(f"   • Total: {len(feature_names_transformed)} features")
+
+    # 3. Transformar dados de teste
+    print("🔄 Transformando dados de teste...")
+    X_test_transformed = preproc.transform(X_test)
+    print(f"   • Shape transformado: {X_test_transformed.shape}")
+
+    # 4. Configurar explainer baseado no tipo de modelo
+    print("🤖 Configurando explainer SHAP...")
+
+    try:
+        if isinstance(clf, (RandomForestClassifier, xgb.XGBClassifier)):
+            print("   • Usando TreeExplainer (mais rápido para modelos baseados em árvores)")
+            explainer = shap.TreeExplainer(clf)
+            Xshap = X_test_transformed[:SAMPLE_SIZE]
+            shap_values = explainer.shap_values(Xshap)
+
+        else:
+            print(f"   • Usando KernelExplainer com {BACKGROUND_SIZE} amostras de background")
+            background = shap.sample(X_test_transformed, BACKGROUND_SIZE)
+            explainer = shap.KernelExplainer(clf.predict_proba, background)
+            Xshap = X_test_transformed[:SAMPLE_SIZE]
+            shap_values = explainer.shap_values(Xshap)
+
+        print(f"✅ SHAP calculado com sucesso para {SAMPLE_SIZE} amostras")
+
+    except Exception as e:
+        print(f"⚠️  Erro no SHAP: {e}")
+        print("🔄 Alternando para Permutation Importance...")
+        return compute_permutation_importance(clf, X_test_transformed, y_test, feature_names_transformed)
+
+    # 5. Processar resultados SHAP
+    print("📊 Processando resultados SHAP...")
+    if isinstance(shap_values, list):
+        sv = shap_values[1] if len(shap_values) > 1 else shap_values[0]
+        print("   • Modelo de classificação - usando valores da classe positiva")
+    else:
+        sv = shap_values.values if hasattr(shap_values, 'values') else shap_values
+        print("   • Modelo de regressão ou explainer direto")
+
+    # 6. Salvar no cache
+    results = {
+        'shap_values': sv,
+        'Xshap': Xshap,
+        'feature_names': feature_names_transformed,
+        'explainer_type': 'shap',
+        'sample_size': SAMPLE_SIZE
+    }
+
+    print(f"💾 Salvando resultados no cache: {SHAP_CACHE_FILE}")
+    joblib.dump(results, SHAP_CACHE_FILE)
+
+    return results
+
+def compute_permutation_importance(clf, X_test_transformed, y_test, feature_names):
+    """Calcula importância por permutação como fallback"""
+    print("🎯 Calculando Permutation Importance...")
+
+    sample_size = min(300, len(X_test_transformed))
+    sample_idx = np.random.choice(len(X_test_transformed), size=sample_size, replace=False)
+
+    print(f"   • Amostra: {sample_size} instâncias")
+    print("   • Executando permutações...")
+
+    result = permutation_importance(
+        clf, X_test_transformed[sample_idx], y_test.iloc[sample_idx],
+        n_repeats=3, random_state=42, n_jobs=1 # Alterado n_jobs=-1 para n_jobs=1
+    )
+
+    results = {
+        'importances': result.importances_mean,
+        'feature_names': feature_names,
+        'explainer_type': 'permutation',
+        'sample_size': sample_size
+    }
+
+    print("💾 Salvando resultados de permutation importance...")
+    joblib.dump(results, SHAP_CACHE_FILE)
+
+    return results
+
+# EXECUÇÃO PRINCIPAL
+print("\n🚀 Executando análise de explicabilidade...")
+results = load_or_compute_shap()
+
+print("\n📈 Gerando visualizações...")
+
+if results['explainer_type'] == 'shap':
+    # Plot SHAP summary
+    print("   • Criando gráfico summary SHAP...")
+    shap.summary_plot(
+        results['shap_values'],
+        results['Xshap'],
+        feature_names=results['feature_names'],
+        show=False
+    )
+    plt.title(f"SHAP Summary Plot (Amostra: {results['sample_size']})")
+    plt.tight_layout()
+    plt.show()
+
+    # Feature importance a partir de SHAP
+    print("   • Calculando importância média das features...")
+    shap_importance = np.abs(results['shap_values']).mean(0)
+    fi_df = pd.DataFrame({
+        'feature': results['feature_names'],
+        'importance': shap_importance
+    }).sort_values('importance', ascending=False).head(15)
+
+    print("\n🏆 Top 15 Features mais importantes (SHAP):")
+    display(fi_df)
+
+else:
+    # Results from permutation importance
+    fi_df = pd.DataFrame({
+        'feature': results['feature_names'],
+        'importance': results['importances']
+    }).sort_values('importance', ascending=False).head(15)
+
+    print("\n🏆 Top 15 Features mais importantes (Permutation Importance):")
+    display(fi_df)
+
+    # Plot bar chart
+    print("   • Criando gráfico de barras...")
+    plt.figure(figsize=(10, 6))
+    fi_df.sort_values('importance', ascending=True).plot.barh(
+        x='feature', y='importance', legend=False
+    )
+    plt.title(f"Permutation Importance (Amostra: {results['sample_size']})")
+    plt.xlabel('Importância')
+    plt.tight_layout()
+    plt.show()
+
+print("\n✅ Análise de explicabilidade concluída!")
+print(f"💾 Resultados salvos em: {SHAP_CACHE_FILE}")
+print("=" * 60)
