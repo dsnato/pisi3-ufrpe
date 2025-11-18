@@ -1,7 +1,3 @@
-# Execute primeiro no Colab (pode levar 1-2 minutos)
-!pip uninstall -y scikit-learn scipy numpy
-!pip install -q --upgrade scikit-learn xgboost shap imbalanced-learn umap-learn matplotlib seaborn joblib
-
 # Imports principais
 import os
 import pathlib
@@ -44,7 +40,7 @@ import umap
 
 # clustering
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
+from sklearn.metrics import silhouette_score, RocCurveDisplay, ConfusionMatrixDisplay
 
 # display
 from IPython.display import display
@@ -56,8 +52,6 @@ print(" imbalanced-learn (SMOTE): https://imbalanced-learn.org/stable/")
 print(" shap: https://shap.readthedocs.io/")
 print(" umap-learn: https://umap-learn.readthedocs.io/")
 
-import pathlib
-import pandas as pd # Adicionado import pandas
 script_dir = pathlib.Path.cwd()
 files = {
     'parquet': script_dir / 'hotel_bookings.parquet',
@@ -265,3 +259,286 @@ for name, pipeline in fitted_models.items():
 best_model_name = max(test_f1s, key=test_f1s.get)
 print(f"\nMelhor modelo (por F1 no teste): {best_model_name} -> {test_f1s[best_model_name]:.4f}")
 joblib.dump(fitted_models[best_model_name], 'best_model.pkl')
+
+# Cell 7/10 - ROC, AUC e Confusion Matrix (melhor modelo)
+best_pipeline = joblib.load('best_model.pkl')
+y_test_pred = best_pipeline.predict(X_test)
+if hasattr(best_pipeline.named_steps['classifier'], 'predict_proba'):
+    y_test_proba = best_pipeline.predict_proba(X_test)[:,1]
+else:
+    # fallback para decision_function
+    try:
+        y_test_proba = best_pipeline.decision_function(X_test)
+    except Exception:
+        y_test_proba = None
+
+print("Classification Report:")
+print(classification_report(y_test, y_test_pred, digits=4))
+
+# Confusion matrix
+ConfusionMatrixDisplay.from_estimator(best_pipeline, X_test, y_test, display_labels=['Não Cancelado','Cancelado'])
+plt.title('Matriz de Confusão - Melhor Modelo')
+plt.show()
+
+# ROC curve + AUC
+if y_test_proba is not None:
+    RocCurveDisplay.from_predictions(y_test, y_test_proba)
+    plt.title('Curva ROC - Melhor Modelo')
+    plt.show()
+    auc = roc_auc_score(y_test, y_test_proba)
+    print(f"AUC: {auc:.4f}")
+else:
+    print("Probabilidades não disponíveis para ROC/AUC.")
+
+# Cell 8/10 - SHAP Explainability (OTIMIZADO COM SALVAMENTO)
+print("🔍 Iniciando análise de explicabilidade do modelo...")
+print("=" * 60)
+
+from sklearn.inspection import permutation_importance
+
+# Configurações otimizadas
+SHAP_CACHE_FILE = 'shap_values_cache.pkl'
+SAMPLE_SIZE = 50  # Amostra reduzida para SHAP
+BACKGROUND_SIZE = 20  # Tamanho do background para KernelExplainer
+
+def load_or_compute_shap():
+    """Carrega resultados do cache ou calcula novos"""
+
+    # Verificar se cache existe
+    if os.path.exists(SHAP_CACHE_FILE):
+        print("📁 Cache encontrado! Carregando resultados SHAP pré-computados...")
+        return joblib.load(SHAP_CACHE_FILE)
+
+    print("🔄 Cache não encontrado. Calculando SHAP (pode demorar alguns minutos)...")
+
+    # 1. Carregar modelo e pré-processador
+    print("📥 Carregando modelo treinado...")
+    best_pipeline = joblib.load('best_model.pkl')
+    clf = best_pipeline.named_steps['classifier']
+    preproc = best_pipeline.named_steps['preprocessor']
+
+    # 2. Obter nomes das features transformadas
+    print("🔧 Preparando nomes das features...")
+    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_cols = X_train.select_dtypes(include=['object']).columns.tolist()
+
+    cat_feature_names = preproc.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out(categorical_cols)
+    feature_names_transformed = numeric_cols + list(cat_feature_names)
+
+    print(f"   • {len(numeric_cols)} features numéricas")
+    print(f"   • {len(categorical_cols)} features categóricas → {len(cat_feature_names)} após one-hot")
+    print(f"   • Total: {len(feature_names_transformed)} features")
+
+    # 3. Transformar dados de teste
+    print("🔄 Transformando dados de teste...")
+    X_test_transformed = preproc.transform(X_test)
+    print(f"   • Shape transformado: {X_test_transformed.shape}")
+
+    # 4. Configurar explainer baseado no tipo de modelo
+    print("🤖 Configurando explainer SHAP...")
+
+    try:
+        if isinstance(clf, (RandomForestClassifier, xgb.XGBClassifier)):
+            print("   • Usando TreeExplainer (mais rápido para modelos baseados em árvores)")
+            explainer = shap.TreeExplainer(clf)
+            Xshap = X_test_transformed[:SAMPLE_SIZE]
+            shap_values = explainer.shap_values(Xshap)
+
+        else:
+            print(f"   • Usando KernelExplainer com {BACKGROUND_SIZE} amostras de background")
+            background = shap.sample(X_test_transformed, BACKGROUND_SIZE)
+            explainer = shap.KernelExplainer(clf.predict_proba, background)
+            Xshap = X_test_transformed[:SAMPLE_SIZE]
+            shap_values = explainer.shap_values(Xshap)
+
+        print(f"✅ SHAP calculado com sucesso para {SAMPLE_SIZE} amostras")
+
+    except Exception as e:
+        print(f"⚠️  Erro no SHAP: {e}")
+        print("🔄 Alternando para Permutation Importance...")
+        return compute_permutation_importance(clf, X_test_transformed, y_test, feature_names_transformed)
+
+    # 5. Processar resultados SHAP
+    print("📊 Processando resultados SHAP...")
+    if isinstance(shap_values, list):
+        sv = shap_values[1] if len(shap_values) > 1 else shap_values[0]
+        print("   • Modelo de classificação - usando valores da classe positiva")
+    else:
+        sv = shap_values.values if hasattr(shap_values, 'values') else shap_values
+        print("   • Modelo de regressão ou explainer direto")
+
+    # 6. Salvar no cache
+    results = {
+        'shap_values': sv,
+        'Xshap': Xshap,
+        'feature_names': feature_names_transformed,
+        'explainer_type': 'shap',
+        'sample_size': SAMPLE_SIZE
+    }
+
+    print(f"💾 Salvando resultados no cache: {SHAP_CACHE_FILE}")
+    joblib.dump(results, SHAP_CACHE_FILE)
+
+    return results
+
+def compute_permutation_importance(clf, X_test_transformed, y_test, feature_names):
+    """Calcula importância por permutação como fallback"""
+    print("🎯 Calculando Permutation Importance...")
+
+    sample_size = min(300, len(X_test_transformed))
+    sample_idx = np.random.choice(len(X_test_transformed), size=sample_size, replace=False)
+
+    print(f"   • Amostra: {sample_size} instâncias")
+    print("   • Executando permutações...")
+
+    result = permutation_importance(
+        clf, X_test_transformed[sample_idx], y_test.iloc[sample_idx],
+        n_repeats=3, random_state=42, n_jobs=1 # Alterado n_jobs=-1 para n_jobs=1
+    )
+
+    results = {
+        'importances': result.importances_mean,
+        'feature_names': feature_names,
+        'explainer_type': 'permutation',
+        'sample_size': sample_size
+    }
+
+    print("💾 Salvando resultados de permutation importance...")
+    joblib.dump(results, SHAP_CACHE_FILE)
+
+    return results
+
+# EXECUÇÃO PRINCIPAL
+print("\n🚀 Executando análise de explicabilidade...")
+results = load_or_compute_shap()
+
+print("\n📈 Gerando visualizações...")
+
+if results['explainer_type'] == 'shap':
+    # Plot SHAP summary
+    print("   • Criando gráfico summary SHAP...")
+    shap.summary_plot(
+        results['shap_values'],
+        results['Xshap'],
+        feature_names=results['feature_names'],
+        show=False
+    )
+    plt.title(f"SHAP Summary Plot (Amostra: {results['sample_size']})")
+    plt.tight_layout()
+    plt.show()
+
+    # Feature importance a partir de SHAP
+    print("   • Calculando importância média das features...")
+    shap_importance = np.abs(results['shap_values']).mean(0)
+    fi_df = pd.DataFrame({
+        'feature': results['feature_names'],
+        'importance': shap_importance
+    }).sort_values('importance', ascending=False).head(15)
+
+    print("\n🏆 Top 15 Features mais importantes (SHAP):")
+    display(fi_df)
+
+else:
+    # Results from permutation importance
+    fi_df = pd.DataFrame({
+        'feature': results['feature_names'],
+        'importance': results['importances']
+    }).sort_values('importance', ascending=False).head(15)
+
+    print("\n🏆 Top 15 Features mais importantes (Permutation Importance):")
+    display(fi_df)
+
+    # Plot bar chart
+    print("   • Criando gráfico de barras...")
+    plt.figure(figsize=(10, 6))
+    fi_df.sort_values('importance', ascending=True).plot.barh(
+        x='feature', y='importance', legend=False
+    )
+    plt.title(f"Permutation Importance (Amostra: {results['sample_size']})")
+    plt.xlabel('Importância')
+    plt.tight_layout()
+    plt.show()
+
+print("\n✅ Análise de explicabilidade concluída!")
+print(f"💾 Resultados salvos em: {SHAP_CACHE_FILE}")
+print("=" * 60)
+
+# Cell 9/10 - Clustering com 10 seeds, k=3; salvar e analisar clusters
+
+
+df_proc = pd.read_parquet('hotel_bookings_processed.parquet')  # do cell 3
+numeric_cols_cluster = df_proc.select_dtypes(include=[np.number]).columns.tolist()
+
+X_cluster = df_proc[numeric_cols_cluster].copy()
+imputer = SimpleImputer(strategy='median')
+scaler = StandardScaler()
+X_cluster_imp = imputer.fit_transform(X_cluster)
+X_cluster_scaled = scaler.fit_transform(X_cluster_imp)
+
+# Testar KMeans com 10 seeds e fixar n_clusters=3
+seeds = [0, 7, 13, 21, 42, 99, 123, 2023, 327, 999]
+n_clusters = 3
+kmeans_models = {}
+sil_scores = {}
+
+for seed in seeds:
+    k = KMeans(n_clusters=n_clusters, random_state=seed, n_init=10)
+    labels = k.fit_predict(X_cluster_scaled)
+    sil = silhouette_score(X_cluster_scaled, labels)
+    sil_scores[seed] = sil
+    kmeans_models[seed] = {'model': k, 'labels': labels}
+    print(f"seed {seed}: silhouette={sil:.4f}")
+
+# Escolher seed com melhor silhouette
+best_seed = max(sil_scores, key=sil_scores.get)
+best_kmeans = kmeans_models[best_seed]['model']
+df_proc['cluster'] = kmeans_models[best_seed]['labels']
+
+print(f"Melhor seed: {best_seed} com silhouette {sil_scores[best_seed]:.4f}")
+# Análise por cluster
+cluster_analysis = df_proc.groupby('cluster').agg({
+    'is_canceled':'mean',
+    'adr':'mean',
+    'lead_time':'mean',
+    'total_guests':'mean',
+    'total_nights':'mean',
+    'total_of_special_requests':'mean'
+}).round(3)
+display(cluster_analysis)
+
+# Salvar objetos
+joblib.dump(best_kmeans, 'kmeans_best_seed.pkl')
+joblib.dump(scaler, 'cluster_scaler.pkl')
+joblib.dump(imputer, 'cluster_imputer.pkl')
+df_proc.to_parquet('hotel_bookings_analyzed.parquet', index=False)
+print("KMeans salvo: kmeans_best_seed.pkl, dados salvos: hotel_bookings_analyzed.parquet")
+
+
+# Cell 10/10 - DR: PCA, t-SNE, UMAP (visualização)
+
+# Use X_cluster_scaled from previous cell
+# PCA
+pca = PCA(n_components=2, random_state=42)
+X_pca = pca.fit_transform(X_cluster_scaled)
+print(f"PCA explained var: PC1 {pca.explained_variance_ratio_[0]*100:.2f}% PC2 {pca.explained_variance_ratio_[1]*100:.2f}%")
+
+plt.figure(figsize=(8,6))
+sns.scatterplot(x=X_pca[:,0], y=X_pca[:,1], hue=df_proc['cluster'], palette='tab10', s=20)
+plt.title('PCA - Visualização de 3 clusters')
+plt.show()
+
+# t-SNE (pode ser lento) - usar perplexity ~30
+tsne = TSNE(n_components=2, random_state=42, init='pca', learning_rate='auto')
+X_tsne = tsne.fit_transform(X_cluster_scaled)
+plt.figure(figsize=(8,6))
+sns.scatterplot(x=X_tsne[:,0], y=X_tsne[:,1], hue=df_proc['cluster'], palette='tab10', s=20)
+plt.title('t-SNE - Visualização de 3 clusters')
+plt.show()
+
+# UMAP
+reducer = umap.UMAP(n_components=2, random_state=42)
+X_umap = reducer.fit_transform(X_cluster_scaled)
+plt.figure(figsize=(8,6))
+sns.scatterplot(x=X_umap[:,0], y=X_umap[:,1], hue=df_proc['cluster'], palette='tab10', s=20)
+plt.title('UMAP - Visualização de 3 clusters')
+plt.show()
