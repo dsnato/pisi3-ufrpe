@@ -1,7 +1,3 @@
-# Execute primeiro no Colab (pode levar 1-2 minutos)
-!pip uninstall -y scikit-learn scipy numpy
-!pip install -q --upgrade scikit-learn xgboost shap imbalanced-learn umap-learn matplotlib seaborn joblib
-
 # Imports principais
 import os
 import pathlib
@@ -44,7 +40,7 @@ import umap
 
 # clustering
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
+from sklearn.metrics import silhouette_score, RocCurveDisplay, ConfusionMatrixDisplay
 
 # display
 from IPython.display import display
@@ -265,3 +261,33 @@ for name, pipeline in fitted_models.items():
 best_model_name = max(test_f1s, key=test_f1s.get)
 print(f"\nMelhor modelo (por F1 no teste): {best_model_name} -> {test_f1s[best_model_name]:.4f}")
 joblib.dump(fitted_models[best_model_name], 'best_model.pkl')
+
+# Cell 7/10 - ROC, AUC e Confusion Matrix (melhor modelo)
+best_pipeline = joblib.load('best_model.pkl')
+y_test_pred = best_pipeline.predict(X_test)
+if hasattr(best_pipeline.named_steps['classifier'], 'predict_proba'):
+    y_test_proba = best_pipeline.predict_proba(X_test)[:,1]
+else:
+    # fallback para decision_function
+    try:
+        y_test_proba = best_pipeline.decision_function(X_test)
+    except Exception:
+        y_test_proba = None
+
+print("Classification Report:")
+print(classification_report(y_test, y_test_pred, digits=4))
+
+# Confusion matrix
+ConfusionMatrixDisplay.from_estimator(best_pipeline, X_test, y_test, display_labels=['Não Cancelado','Cancelado'])
+plt.title('Matriz de Confusão - Melhor Modelo')
+plt.show()
+
+# ROC curve + AUC
+if y_test_proba is not None:
+    RocCurveDisplay.from_predictions(y_test, y_test_proba)
+    plt.title('Curva ROC - Melhor Modelo')
+    plt.show()
+    auc = roc_auc_score(y_test, y_test_proba)
+    print(f"AUC: {auc:.4f}")
+else:
+    print("Probabilidades não disponíveis para ROC/AUC.")
