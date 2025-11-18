@@ -513,6 +513,7 @@ joblib.dump(imputer, 'cluster_imputer.pkl')
 df_proc.to_parquet('hotel_bookings_analyzed.parquet', index=False)
 print("KMeans salvo: kmeans_best_seed.pkl, dados salvos: hotel_bookings_analyzed.parquet")
 
+
 # Cell 10/10 - DR: PCA, t-SNE, UMAP (visualização)
 
 # Use X_cluster_scaled from previous cell
