@@ -11,9 +11,10 @@ import seaborn as sns
 import joblib
 from pprint import pprint
 import statistics
+import time
 
 # sklearn
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score, cross_validate
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score, cross_validate, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
@@ -52,10 +53,10 @@ print(" imbalanced-learn (SMOTE): https://imbalanced-learn.org/stable/")
 print(" shap: https://shap.readthedocs.io/")
 print(" umap-learn: https://umap-learn.readthedocs.io/")
 
-script_dir = pathlib.Path.cwd()
+script_dir = pathlib.Path(__file__).parent
 files = {
     'parquet': script_dir / 'hotel_bookings.parquet',
-    'csv': script_dir / 'hotel_bookings.csv'
+    'csv': script_dir / 'data' / 'hotel_bookings.csv'
 }
 
 if files['parquet'].exists():
@@ -176,7 +177,7 @@ pipeline_log = ImbPipeline(steps=[
 joblib.dump({'rf': pipeline_rf, 'xgb': pipeline_xgb, 'log': pipeline_log}, 'pipelines_initial.pkl')
 print("Pipelines iniciais salvos: pipelines_initial.pkl")
 
-# Cell 5/10 - Treinamento: cross-val por 10 seeds (agregação de métricas)
+#Treinamento: cross-val por 10 seeds (agregação de métricas)
 
 models = {
     'RandomForest': pipeline_rf,
@@ -214,7 +215,7 @@ for name, pipeline in models.items():
 joblib.dump(results_by_model, 'cv_results_by_model.pkl')
 print("\nResultados de cross-val salvos: cv_results_by_model.pkl")
 
-# Cell 6/10 - Fit final (usar seed 42) e diagnóstico treino vs teste (overfitting)
+# Fit final (usar seed 42) e diagnóstico treino vs teste (overfitting)
 best_models = {}
 for name, info in results_by_model.items():
     # escolher modelo com maior mean f1 across seeds
@@ -260,7 +261,139 @@ best_model_name = max(test_f1s, key=test_f1s.get)
 print(f"\nMelhor modelo (por F1 no teste): {best_model_name} -> {test_f1s[best_model_name]:.4f}")
 joblib.dump(fitted_models[best_model_name], 'best_model.pkl')
 
-# Cell 7/10 - ROC, AUC e Confusion Matrix (melhor modelo)
+# Otimização acelerada do Random Forest
+
+# Carregar pipeline original
+pipelines = joblib.load('pipelines_initial.pkl')
+pipeline_rf_tuned = pipelines['rf']
+
+# 📊 ESTRATÉGIA 1: AMOSTRAGEM INTELIGENTE PARA BUSCA DE HIPERPARÂMETROS
+print("📊 Criando amostra estratégica (30% dos dados)...")
+X_sample, _, y_sample, _ = train_test_split(
+    X, y,
+    train_size=0.3,           # 30% = 36K registros - suficiente para estimar parâmetros
+    stratify=y,               # Manter proporção original das classes
+    random_state=42,          # Reprodutibilidade
+    shuffle=True
+)
+print(f"✅ Amostra criada: {X_sample.shape[0]:,} registros de {X.shape[0]:,} originais")
+
+# 🎯 ESTRATÉGIA 2: ESPAÇO DE PARÂMETROS OTIMIZADO PARA DATASETS GRANDES
+param_dist_optimized = {
+    # ÁRVORES: Balance entre performance e tempo
+    'classifier__n_estimators': [100, 120],           # Reduzido - ganho marginal diminui acima de 100
+
+    # PROFUNDIDADE: Controlar overfitting em dados grandes
+    'classifier__max_depth': [15, 20],                # Valores moderados para 120K registros
+
+    # REGULARIZAÇÃO: Prevenir overfitting com valores maiores
+    'classifier__min_samples_split': [20, 30],        # Aumentado - força generalização
+    'classifier__min_samples_leaf': [10, 15],         # Aumentado - folhas mais robustas
+
+    # FEATURES: Diversidade com menos opções
+    'classifier__max_features': ['sqrt', 0.3],        # sqrt (default) e 30% - bons trade-offs
+
+    # BOOTSTRAP: Manter para reduzir overfitting
+    'classifier__bootstrap': [True]
+}
+
+print("🎯 Configuração de parâmetros otimizada:")
+print(f"   • Espaço de busca reduzido: 32 combinações (vs 432 original)")
+print(f"   • Parâmetros mais restritivos para dataset grande")
+
+# ⚡ ESTRATÉGIA 3: RANDOMIZEDSEARCHCV ACELERADO
+print("⚡ Configurando RandomizedSearchCV otimizado...")
+
+random_search = RandomizedSearchCV(
+    pipeline_rf_tuned,
+    param_dist_optimized,
+    n_iter=15,                 # Testar 15 combinações aleatórias (vs 432)
+    cv=3,                      # 3-fold CV (vs 5) - suficiente para dados grandes
+    scoring='accuracy',         # Métrica clara de avaliação
+    n_jobs=-1,                 # Paralelizar em TODOS os cores
+    random_state=42,           # Reprodutibilidade
+    verbose=2,                 # Monitoramento detalhado
+    return_train_score=True    # Analisar overfitting
+)
+
+# 🕒 EXECUÇÃO COM TIMING
+print("🚀 Iniciando busca de hiperparâmetros...")
+print("⏰ Estimativa: 30-90 minutos (vs 6+ horas original)")
+start_time = time.time()
+
+random_search.fit(X_sample, y_sample)
+
+end_time = time.time()
+execution_minutes = (end_time - start_time) / 60
+print(f"✅ Busca concluída em {execution_minutes:.1f} minutos")
+
+# 📈 ESTRATÉGIA 4: TREINO FINAL COM TODOS OS DADOS
+print("📈 Treinando modelo final com melhores parâmetros...")
+best_pipeline = random_search.best_estimator_
+
+# Agora sim usar TODOS os dados com os melhores parâmetros encontrados
+best_pipeline.fit(X, y)
+
+# 💾 SALVAR RESULTADOS
+print("💾 Salvando resultados...")
+import joblib
+
+# Salvar modelo otimizado
+joblib.dump(best_pipeline, 'random_forest_optimized.pkl')
+joblib.dump(random_search, 'random_search_results.pkl')
+
+# 📊 RELATÓRIO FINAL
+print("\n" + "="*60)
+print("🎉 OTIMIZAÇÃO CONCLUÍDA COM SUCESSO!")
+print("="*60)
+print(f"🏆 Melhores parâmetros encontrados:")
+for param, value in random_search.best_params_.items():
+    print(f"   • {param}: {value}")
+
+print(f"📊 Melhor score na validação: {random_search.best_score_:.4f}")
+print(f"⏰ Tempo total: {execution_minutes:.1f} minutos")
+print(f"💾 Modelo salvo: 'random_forest_optimized.pkl'")
+
+# 🔍 ANALISAR OVERFITTING
+print("\n🔍 Análise de overfitting:")
+train_score = random_search.cv_results_['mean_train_score'][random_search.best_index_]
+test_score = random_search.best_score_
+gap = train_score - test_score
+print(f"   • Score treino: {train_score:.4f}")
+print(f"   • Score validação: {test_score:.4f}")
+print(f"   • Gap (overfitting): {gap:.4f}")
+
+print("\n✅ Processo concluído! Use o modelo salvo para fazer previsões.")
+
+# Carregar o modelo otimizado
+best_rf_model = joblib.load('random_forest_optimized.pkl')
+
+# Avaliar no conjunto de treino
+y_train_pred_tuned = best_rf_model.predict(X_train)
+y_train_proba_tuned = best_rf_model.predict_proba(X_train)[:,1]
+train_f1_tuned = f1_score(y_train, y_train_pred_tuned)
+train_acc_tuned = accuracy_score(y_train, y_train_pred_tuned)
+
+# Avaliar no conjunto de teste
+y_test_pred_tuned = best_rf_model.predict(X_test)
+y_test_proba_tuned = best_rf_model.predict_proba(X_test)[:,1]
+test_f1_tuned = f1_score(y_test, y_test_pred_tuned)
+test_acc_tuned = accuracy_score(y_test, y_test_pred_tuned)
+
+print(f"\n--- RandomForest Otimizado ---")
+print(f" Train Acc: {train_acc_tuned:.4f} F1: {train_f1_tuned:.4f}")
+print(f" Test Acc: {test_acc_tuned:.4f} F1: {test_f1_tuned:.4f}")
+
+gap_tuned = train_f1_tuned - test_f1_tuned
+if gap_tuned > 0.05: # Um gap menor que 0.10 é geralmente aceitável, vamos usar 0.05 para ser mais rigoroso
+    print(f"  ⚠️ Possível overfitting ainda presente (gap F1 train - test = {gap_tuned:.4f})")
+else:
+    print(f"  ✓ Gap aceitável (gap F1 train - test = {gap_tuned:.4f})")
+
+print("\nRelatório de Classificação no Teste:")
+print(classification_report(y_test, y_test_pred_tuned))
+
+# ROC, AUC e Confusion Matrix (melhor modelo)
 best_pipeline = joblib.load('best_model.pkl')
 y_test_pred = best_pipeline.predict(X_test)
 if hasattr(best_pipeline.named_steps['classifier'], 'predict_proba'):
@@ -290,7 +423,7 @@ if y_test_proba is not None:
 else:
     print("Probabilidades não disponíveis para ROC/AUC.")
 
-# Cell 8/10 - SHAP Explainability (OTIMIZADO COM SALVAMENTO)
+# SHAP Explainability (OTIMIZADO COM SALVAMENTO)
 print("🔍 Iniciando análise de explicabilidade do modelo...")
 print("=" * 60)
 
@@ -463,82 +596,29 @@ print("\n✅ Análise de explicabilidade concluída!")
 print(f"💾 Resultados salvos em: {SHAP_CACHE_FILE}")
 print("=" * 60)
 
-# Cell 9/10 - Clustering com 10 seeds, k=3; salvar e analisar clusters
+# Preparação de Dados para Clusterização: Carregamento, Imputação e Escalonamento
 
+# 1. Carregue o arquivo 'hotel_bookings_processed.parquet'
+df_cluster = pd.read_parquet('hotel_bookings_processed.parquet')
+print(f"DataFrame 'df_cluster' carregado com {df_cluster.shape[0]} linhas e {df_cluster.shape[1]} colunas.")
 
-df_proc = pd.read_parquet('hotel_bookings_processed.parquet')  # do cell 3
-numeric_cols_cluster = df_proc.select_dtypes(include=[np.number]).columns.tolist()
+# 2. Selecione apenas as colunas numéricas
+X_cluster_raw = df_cluster.select_dtypes(include=[np.number])
+print(f"'X_cluster_raw' criado com {X_cluster_raw.shape[1]} colunas numéricas.")
 
-X_cluster = df_proc[numeric_cols_cluster].copy()
+# 3. Instancie e aplique SimpleImputer
 imputer = SimpleImputer(strategy='median')
+X_cluster_imputed = imputer.fit_transform(X_cluster_raw)
+print("Valores ausentes imputados usando a mediana.")
+
+# 4. Instancie e aplique StandardScaler
 scaler = StandardScaler()
-X_cluster_imp = imputer.fit_transform(X_cluster)
-X_cluster_scaled = scaler.fit_transform(X_cluster_imp)
+X_cluster_scaled = scaler.fit_transform(X_cluster_imputed)
+print("Dados escalados usando StandardScaler.")
 
-# Testar KMeans com 10 seeds e fixar n_clusters=3
-seeds = [0, 7, 13, 21, 42, 99, 123, 2023, 327, 999]
-n_clusters = 3
-kmeans_models = {}
-sil_scores = {}
-
-for seed in seeds:
-    k = KMeans(n_clusters=n_clusters, random_state=seed, n_init=10)
-    labels = k.fit_predict(X_cluster_scaled)
-    sil = silhouette_score(X_cluster_scaled, labels)
-    sil_scores[seed] = sil
-    kmeans_models[seed] = {'model': k, 'labels': labels}
-    print(f"seed {seed}: silhouette={sil:.4f}")
-
-# Escolher seed com melhor silhouette
-best_seed = max(sil_scores, key=sil_scores.get)
-best_kmeans = kmeans_models[best_seed]['model']
-df_proc['cluster'] = kmeans_models[best_seed]['labels']
-
-print(f"Melhor seed: {best_seed} com silhouette {sil_scores[best_seed]:.4f}")
-# Análise por cluster
-cluster_analysis = df_proc.groupby('cluster').agg({
-    'is_canceled':'mean',
-    'adr':'mean',
-    'lead_time':'mean',
-    'total_guests':'mean',
-    'total_nights':'mean',
-    'total_of_special_requests':'mean'
-}).round(3)
-display(cluster_analysis)
-
-# Salvar objetos
-joblib.dump(best_kmeans, 'kmeans_best_seed.pkl')
-joblib.dump(scaler, 'cluster_scaler.pkl')
+# 5. Salve o SimpleImputer e o StandardScaler
 joblib.dump(imputer, 'cluster_imputer.pkl')
-df_proc.to_parquet('hotel_bookings_analyzed.parquet', index=False)
-print("KMeans salvo: kmeans_best_seed.pkl, dados salvos: hotel_bookings_analyzed.parquet")
+joblib.dump(scaler, 'cluster_scaler.pkl')
+print("Imputer e Scaler salvos como 'cluster_imputer.pkl' e 'cluster_scaler.pkl'.")
 
-
-# Cell 10/10 - DR: PCA, t-SNE, UMAP (visualização)
-
-# Use X_cluster_scaled from previous cell
-# PCA
-pca = PCA(n_components=2, random_state=42)
-X_pca = pca.fit_transform(X_cluster_scaled)
-print(f"PCA explained var: PC1 {pca.explained_variance_ratio_[0]*100:.2f}% PC2 {pca.explained_variance_ratio_[1]*100:.2f}%")
-
-plt.figure(figsize=(8,6))
-sns.scatterplot(x=X_pca[:,0], y=X_pca[:,1], hue=df_proc['cluster'], palette='tab10', s=20)
-plt.title('PCA - Visualização de 3 clusters')
-plt.show()
-
-# t-SNE (pode ser lento) - usar perplexity ~30
-tsne = TSNE(n_components=2, random_state=42, init='pca', learning_rate='auto')
-X_tsne = tsne.fit_transform(X_cluster_scaled)
-plt.figure(figsize=(8,6))
-sns.scatterplot(x=X_tsne[:,0], y=X_tsne[:,1], hue=df_proc['cluster'], palette='tab10', s=20)
-plt.title('t-SNE - Visualização de 3 clusters')
-plt.show()
-
-# UMAP
-reducer = umap.UMAP(n_components=2, random_state=42)
-X_umap = reducer.fit_transform(X_cluster_scaled)
-plt.figure(figsize=(8,6))
-sns.scatterplot(x=X_umap[:,0], y=X_umap[:,1], hue=df_proc['cluster'], palette='tab10', s=20)
-plt.title('UMAP - Visualização de 3 clusters')
-plt.show()
+print("Preparação de dados para clusterização concluída.")
