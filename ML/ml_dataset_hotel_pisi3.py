@@ -675,3 +675,52 @@ plt.grid(True)
 plt.show()
 
 print("Visualização dos scores SSE e Silhouette concluída.")
+
+# CLUSTERIZAÇÃO COM TÉCNICAS K-MEANS E DBSCAN
+
+print("\nIniciando clusterização com K-Means e DBSCAN…")
+
+# =========================================================
+# 1) K-MEANS (com 3 clusters e random_state fixo)
+# =========================================================
+
+from sklearn.cluster import KMeans # Garante que KMeans está importado
+from sklearn.metrics import silhouette_score # Garante que silhouette_score está importado
+
+print("\nExecutando K-Means com 3 clusters...")
+n_clusters_kmeans = 3
+kmeans_final = KMeans(n_clusters=n_clusters_kmeans, random_state=42, n_init=10)
+labels_k = kmeans_final.fit_predict(X_cluster_scaled)
+sil_kmeans = silhouette_score(X_cluster_scaled, labels_k)
+df_cluster["cluster_kmeans"] = labels_k
+
+print(f"K-Means \u2192 Silhouette Score: {sil_kmeans:.4f}")
+
+
+# =========================================================
+# 2) DBSCAN
+# =========================================================
+
+from sklearn.cluster import DBSCAN
+
+eps_fixed = 2.4
+min_s_fixed = 10
+
+print(f"\nExecutando DBSCAN com parâmetros fixos: eps={eps_fixed}, min_samples={min_s_fixed}...")
+
+db = DBSCAN(eps=eps_fixed, min_samples=min_s_fixed, n_jobs=-1)
+labels_d = db.fit_predict(X_cluster_scaled)
+
+# DBSCAN pode retornar tudo como ruídos (-1) ou um único cluster (0) evitar isso para silhouette
+unique_labels = len(set(labels_d)) - (1 if -1 in labels_d else 0) # Ignora ruídos
+if unique_labels > 1: # Precisa de pelo menos 2 clusters válidos para Silhouette Score
+    sil_dbscan_fixed = silhouette_score(X_cluster_scaled, labels_d)
+    df_cluster["cluster_dbscan"] = labels_d
+    print(f"DBSCAN  (eps={eps_fixed}, min_samples={min_s_fixed}) | Silhouette: {sil_dbscan_fixed:.4f}")
+else:
+    print(f"DBSCAN  (eps={eps_fixed}, min_samples={min_s_fixed}) | Insuficiente clusters válidos para Silhouette.")
+    df_cluster["cluster_dbscan"] = -1 # Atribui -1 para todos se nenhum cluster válido for encontrado
+
+# Salvar clusterização
+df_cluster.to_parquet("hotel_bookings_clustered.parquet", index=False)
+print("\nClusterização concluída. Resultados salvos em 'hotel_bookings_clustered.parquet'.")
