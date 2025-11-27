@@ -1,50 +1,40 @@
 # Imports principais
 import os
 import pathlib
+import time
 import warnings
-warnings.filterwarnings('ignore')
 
+import joblib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import joblib
-from pprint import pprint
-import statistics
-import time
-
-# sklearn
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score, cross_validate, RandomizedSearchCV
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.impute import SimpleImputer
-from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score,
-                             roc_auc_score, roc_curve, confusion_matrix, classification_report)
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
-
-# xgboost
+import shap
 import xgboost as xgb
-
-# imbalanced-learn
+from IPython.display import display
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    RocCurveDisplay,
+    ConfusionMatrixDisplay,
+    accuracy_score,
+    classification_report,
+    f1_score,
+    roc_auc_score,
+)
+from sklearn.model_selection import (
+    RandomizedSearchCV,
+    StratifiedKFold,
+    cross_validate,
+    train_test_split,
+)
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 
-# shap
-import shap
-
-# umap
-import umap
-
-# clustering
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score, RocCurveDisplay, ConfusionMatrixDisplay
-
-# display
-from IPython.display import display
+warnings.filterwarnings('ignore')
 
 # Links úteis (documentação)
 print("Docs úteis:")
@@ -66,7 +56,10 @@ elif files['csv'].exists():
     df = pd.read_csv(files['csv'])
     print(f"Loaded csv: {files['csv']}")
 else:
-    raise FileNotFoundError("Coloque hotel_bookings.csv ou hotel_bookings.parquet no diretório do notebook.")
+    raise FileNotFoundError(
+        "Coloque hotel_bookings.csv ou hotel_bookings.parquet no "
+        "diretório do notebook."
+    )
 
 print(f"\nTamanho: {df.shape[0]:,} linhas x {df.shape[1]} colunas")
 display(df.head())
@@ -79,10 +72,20 @@ display(df.isnull().sum().sort_values(ascending=False).head(20))
 df = df.copy()
 
 # Features novas (como no seu script)
-df['total_guests'] = df['adults'].fillna(0) + df['children'].fillna(0) + df['babies'].fillna(0)
-df['total_nights'] = df['stays_in_weekend_nights'].fillna(0) + df['stays_in_week_nights'].fillna(0)
-df['has_special_request'] = (df['total_of_special_requests'].fillna(0) > 0).astype(int)
-df['is_family'] = ((df['adults'].fillna(0) > 0) & ((df['children'].fillna(0) > 0) | (df['babies'].fillna(0) > 0))).astype(int)
+df['total_guests'] = (
+    df['adults'].fillna(0) + df['children'].fillna(0) + df['babies'].fillna(0)
+)
+df['total_nights'] = (
+    df['stays_in_weekend_nights'].fillna(0) +
+    df['stays_in_week_nights'].fillna(0)
+)
+df['has_special_request'] = (
+    (df['total_of_special_requests'].fillna(0) > 0).astype(int)
+)
+df['is_family'] = (
+    (df['adults'].fillna(0) > 0) &
+    ((df['children'].fillna(0) > 0) | (df['babies'].fillna(0) > 0))
+).astype(int)
 
 # Tratar faltantes simples
 df['company'].fillna(0, inplace=True)
@@ -96,10 +99,12 @@ df = df[df['adr'] < 1000].reset_index(drop=True)
 # Features escolhidas (base)
 features = [
     'hotel', 'lead_time', 'arrival_date_month', 'arrival_date_week_number',
-    'arrival_date_day_of_month', 'stays_in_weekend_nights', 'stays_in_week_nights',
+    'arrival_date_day_of_month', 'stays_in_weekend_nights',
+    'stays_in_week_nights',
     'adults', 'children', 'babies', 'country', 'market_segment',
     'distribution_channel', 'is_repeated_guest', 'previous_cancellations',
-    'previous_bookings_not_canceled', 'reserved_room_type', 'assigned_room_type',
+    'previous_bookings_not_canceled', 'reserved_room_type',
+    'assigned_room_type',
     'booking_changes', 'deposit_type', 'agent', 'company', 'customer_type',
     'adr', 'required_car_parking_spaces', 'total_of_special_requests',
     'total_guests', 'total_nights', 'has_special_request', 'is_family'
@@ -135,7 +140,10 @@ preprocessor = ColumnTransformer(transformers=[
 joblib.dump(preprocessor, 'preprocessor.pkl')
 joblib.dump(features, 'features_list.pkl')
 df.to_parquet('hotel_bookings_processed.parquet', index=False)
-print("Preprocessor salvo: preprocessor.pkl, dataset salvo: hotel_bookings_processed.parquet")
+print(
+    "Preprocessor salvo: preprocessor.pkl, "
+    "dataset salvo: hotel_bookings_processed.parquet"
+)
 
 # Split estratificado
 X_train, X_test, y_train, y_test = train_test_split(
@@ -147,11 +155,17 @@ print("Balance (treino):")
 print(y_train.value_counts(normalize=True))
 
 # Pipeline com SMOTE aplicado APÓS o pré-processamento numérico/categórico:
-# Usamos ImbPipeline para garantir que SMOTE opere no espaço numérico transformado.
+# Usamos ImbPipeline para garantir que SMOTE opere no espaço numérico
+# transformado.
 smote = SMOTE(random_state=42)
 
 rf = RandomForestClassifier(random_state=42, n_jobs=1)
-xgb_clf = xgb.XGBClassifier(random_state=42, use_label_encoder=False, eval_metric='logloss', n_jobs=1)
+xgb_clf = xgb.XGBClassifier(
+    random_state=42,
+    use_label_encoder=False,
+    eval_metric='logloss',
+    n_jobs=1
+)
 logreg = LogisticRegression(max_iter=200, random_state=42)
 
 # Construir pipelines modelos (ex.: RF)
@@ -174,10 +188,13 @@ pipeline_log = ImbPipeline(steps=[
 ])
 
 # Salvar pipelines iniciais (sem fit)
-joblib.dump({'rf': pipeline_rf, 'xgb': pipeline_xgb, 'log': pipeline_log}, 'pipelines_initial.pkl')
+joblib.dump(
+    {'rf': pipeline_rf, 'xgb': pipeline_xgb, 'log': pipeline_log},
+    'pipelines_initial.pkl'
+)
 print("Pipelines iniciais salvos: pipelines_initial.pkl")
 
-#Treinamento: cross-val por 10 seeds (agregação de métricas)
+# Treinamento: cross-val por 10 seeds (agregação de métricas)
 
 models = {
     'RandomForest': pipeline_rf,
@@ -195,21 +212,32 @@ for name, pipeline in models.items():
     metrics_per_seed = []
     for seed in seeds:
         # cross_validate para obter múltiplas métricas
-        scores = cross_validate(pipeline, X_train, y_train,
-                                scoring=['accuracy', 'precision', 'recall', 'f1', 'roc_auc'],
-                                cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=seed),
-                                n_jobs=1, return_train_score=False)
+        scores = cross_validate(
+            pipeline, X_train, y_train,
+            scoring=['accuracy', 'precision', 'recall', 'f1', 'roc_auc'],
+            cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=seed),
+            n_jobs=1, return_train_score=False
+        )
         # agregar médias por seed
-        seed_metrics = {m: float(np.mean(scores[f'test_{m}'])) for m in ['accuracy','precision','recall','f1','roc_auc']}
+        seed_metrics = {
+            m: float(np.mean(scores[f'test_{m}']))
+            for m in ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']
+        }
         seed_metrics['seed'] = seed
         metrics_per_seed.append(seed_metrics)
-        print(f" seed {seed}: f1={seed_metrics['f1']:.4f} roc_auc={seed_metrics['roc_auc']:.4f}")
+        print(
+            f" seed {seed}: f1={seed_metrics['f1']:.4f} "
+            f"roc_auc={seed_metrics['roc_auc']:.4f}"
+        )
     # agregados
     df_metrics = pd.DataFrame(metrics_per_seed)
     summary = df_metrics.mean().to_dict()
     summary['std'] = df_metrics.std().to_dict()
     results_by_model[name] = {'per_seed': df_metrics, 'summary': summary}
-    print(f" -> média F1 across seeds: {summary['f1']:.4f} (std {summary['std']['f1']:.4f})")
+    print(
+        f" -> média F1 across seeds: {summary['f1']:.4f} "
+        f"(std {summary['std']['f1']:.4f})"
+    )
 
 # Salvar resultados resumidos
 joblib.dump(results_by_model, 'cv_results_by_model.pkl')
@@ -222,26 +250,37 @@ for name, info in results_by_model.items():
     mean_f1 = info['summary']['f1']
     print(f"Modelo {name} mean_f1={mean_f1:.4f}")
 
-# Suponha que RandomForest foi o melhor — vamos treinar todos com seed=42 e comparar
+# Suponha que RandomForest foi o melhor
+# vamos treinar todos com seed=42 e comparar
 final_seed = 42
 fitted_models = {}
 
 for name, pipeline in models.items():
     print(f"\nFit final: {name}")
-    pipeline.set_params(classifier__random_state=final_seed) if hasattr(pipeline.named_steps['classifier'],'random_state') else None
+    if hasattr(pipeline.named_steps['classifier'], 'random_state'):
+        pipeline.set_params(classifier__random_state=final_seed)
     pipeline.fit(X_train, y_train)
     fitted_models[name] = pipeline
     # Métricas no treino
     y_train_pred = pipeline.predict(X_train)
-    y_train_proba = pipeline.predict_proba(X_train)[:,1] if hasattr(pipeline.named_steps['classifier'],'predict_proba') else None
+    if hasattr(pipeline.named_steps['classifier'], 'predict_proba'):
+        y_train_proba = pipeline.predict_proba(X_train)[:, 1]  # noqa: F841
+    else:
+        y_train_proba = None  # noqa: F841
     train_f1 = f1_score(y_train, y_train_pred)
     train_acc = accuracy_score(y_train, y_train_pred)
     # Métricas no teste
     y_test_pred = pipeline.predict(X_test)
-    y_test_proba = pipeline.predict_proba(X_test)[:,1] if hasattr(pipeline.named_steps['classifier'],'predict_proba') else None
+    if hasattr(pipeline.named_steps['classifier'], 'predict_proba'):
+        y_test_proba = pipeline.predict_proba(X_test)[:, 1]  # noqa: F841
+    else:
+        y_test_proba = None  # noqa: F841
     test_f1 = f1_score(y_test, y_test_pred)
     test_acc = accuracy_score(y_test, y_test_pred)
-    print(f" Train Acc: {train_acc:.4f} F1: {train_f1:.4f} | Test Acc: {test_acc:.4f} F1: {test_f1:.4f}")
+    print(
+        f" Train Acc: {train_acc:.4f} F1: {train_f1:.4f} | "
+        f"Test Acc: {test_acc:.4f} F1: {test_f1:.4f}"
+    )
     # Diagnóstico simples de overfitting
     gap = train_f1 - test_f1
     if gap > 0.10:
@@ -258,7 +297,10 @@ for name, pipeline in fitted_models.items():
     y_test_pred = pipeline.predict(X_test)
     test_f1s[name] = f1_score(y_test, y_test_pred)
 best_model_name = max(test_f1s, key=test_f1s.get)
-print(f"\nMelhor modelo (por F1 no teste): {best_model_name} -> {test_f1s[best_model_name]:.4f}")
+print(
+    f"\nMelhor modelo (por F1 no teste): {best_model_name} -> "
+    f"{test_f1s[best_model_name]:.4f}"
+)
 joblib.dump(fitted_models[best_model_name], 'best_model.pkl')
 
 # Otimização acelerada do Random Forest
@@ -271,35 +313,43 @@ pipeline_rf_tuned = pipelines['rf']
 print("📊 Criando amostra estratégica (30% dos dados)...")
 X_sample, _, y_sample, _ = train_test_split(
     X, y,
-    train_size=0.3,           # 30% = 36K registros - suficiente para estimar parâmetros
+    train_size=0.3,           # 30% = 36K registros - suficiente p/ estimar
     stratify=y,               # Manter proporção original das classes
     random_state=42,          # Reprodutibilidade
     shuffle=True
 )
-print(f"✅ Amostra criada: {X_sample.shape[0]:,} registros de {X.shape[0]:,} originais")
+print(
+    f"✅ Amostra criada: {X_sample.shape[0]:,} registros de "
+    f"{X.shape[0]:,} originais"
+)
 
 # 🎯 ESTRATÉGIA 2: ESPAÇO DE PARÂMETROS OTIMIZADO PARA DATASETS GRANDES
 param_dist_optimized = {
     # ÁRVORES: Balance entre performance e tempo
-    'classifier__n_estimators': [100, 120],           # Reduzido - ganho marginal diminui acima de 100
+    # Reduzido - ganho marginal diminui acima de 100
+    'classifier__n_estimators': [100, 120],
 
     # PROFUNDIDADE: Controlar overfitting em dados grandes
-    'classifier__max_depth': [15, 20],                # Valores moderados para 120K registros
+    # Valores moderados para 120K registros
+    'classifier__max_depth': [15, 20],
 
     # REGULARIZAÇÃO: Prevenir overfitting com valores maiores
-    'classifier__min_samples_split': [20, 30],        # Aumentado - força generalização
-    'classifier__min_samples_leaf': [10, 15],         # Aumentado - folhas mais robustas
+    # Aumentado - força generalização
+    'classifier__min_samples_split': [20, 30],
+    # Aumentado - folhas mais robustas
+    'classifier__min_samples_leaf': [10, 15],
 
     # FEATURES: Diversidade com menos opções
-    'classifier__max_features': ['sqrt', 0.3],        # sqrt (default) e 30% - bons trade-offs
+    # sqrt (default) e 30% - bons trade-offs
+    'classifier__max_features': ['sqrt', 0.3],
 
     # BOOTSTRAP: Manter para reduzir overfitting
     'classifier__bootstrap': [True]
 }
 
 print("🎯 Configuração de parâmetros otimizada:")
-print(f"   • Espaço de busca reduzido: 32 combinações (vs 432 original)")
-print(f"   • Parâmetros mais restritivos para dataset grande")
+print("   • Espaço de busca reduzido: 32 combinações (vs 432 original)")
+print("   • Parâmetros mais restritivos para dataset grande")
 
 # ⚡ ESTRATÉGIA 3: RANDOMIZEDSEARCHCV ACELERADO
 print("⚡ Configurando RandomizedSearchCV otimizado...")
@@ -308,8 +358,8 @@ random_search = RandomizedSearchCV(
     pipeline_rf_tuned,
     param_dist_optimized,
     n_iter=15,                 # Testar 15 combinações aleatórias (vs 432)
-    cv=3,                      # 3-fold CV (vs 5) - suficiente para dados grandes
-    scoring='accuracy',         # Métrica clara de avaliação
+    cv=3,                      # 3-fold CV (vs 5) - suficiente p/ dados
+    scoring='accuracy',        # Métrica clara de avaliação
     n_jobs=-1,                 # Paralelizar em TODOS os cores
     random_state=42,           # Reprodutibilidade
     verbose=2,                 # Monitoramento detalhado
@@ -336,7 +386,6 @@ best_pipeline.fit(X, y)
 
 # 💾 SALVAR RESULTADOS
 print("💾 Salvando resultados...")
-import joblib
 
 # Salvar modelo otimizado
 joblib.dump(best_pipeline, 'random_forest_optimized.pkl')
@@ -346,47 +395,57 @@ joblib.dump(random_search, 'random_search_results.pkl')
 print("\n" + "="*60)
 print("🎉 OTIMIZAÇÃO CONCLUÍDA COM SUCESSO!")
 print("="*60)
-print(f"🏆 Melhores parâmetros encontrados:")
+print("🏆 Melhores parâmetros encontrados:")
 for param, value in random_search.best_params_.items():
     print(f"   • {param}: {value}")
 
 print(f"📊 Melhor score na validação: {random_search.best_score_:.4f}")
 print(f"⏰ Tempo total: {execution_minutes:.1f} minutos")
-print(f"💾 Modelo salvo: 'random_forest_optimized.pkl'")
+print("💾 Modelo salvo: 'random_forest_optimized.pkl'")
 
 # 🔍 ANALISAR OVERFITTING
 print("\n🔍 Análise de overfitting:")
-train_score = random_search.cv_results_['mean_train_score'][random_search.best_index_]
+train_score = random_search.cv_results_['mean_train_score'][
+    random_search.best_index_
+]
 test_score = random_search.best_score_
 gap = train_score - test_score
 print(f"   • Score treino: {train_score:.4f}")
 print(f"   • Score validação: {test_score:.4f}")
 print(f"   • Gap (overfitting): {gap:.4f}")
 
-print("\n✅ Processo concluído! Use o modelo salvo para fazer previsões.")
+print(
+    "\n✅ Processo concluído! "
+    "Use o modelo salvo para fazer previsões."
+)
 
 # Carregar o modelo otimizado
 best_rf_model = joblib.load('random_forest_optimized.pkl')
 
 # Avaliar no conjunto de treino
 y_train_pred_tuned = best_rf_model.predict(X_train)
-y_train_proba_tuned = best_rf_model.predict_proba(X_train)[:,1]
+y_train_proba_tuned = best_rf_model.predict_proba(X_train)[:, 1]  # noqa
 train_f1_tuned = f1_score(y_train, y_train_pred_tuned)
 train_acc_tuned = accuracy_score(y_train, y_train_pred_tuned)
 
 # Avaliar no conjunto de teste
 y_test_pred_tuned = best_rf_model.predict(X_test)
-y_test_proba_tuned = best_rf_model.predict_proba(X_test)[:,1]
+y_test_proba_tuned = best_rf_model.predict_proba(X_test)[:, 1]  # noqa
 test_f1_tuned = f1_score(y_test, y_test_pred_tuned)
 test_acc_tuned = accuracy_score(y_test, y_test_pred_tuned)
 
-print(f"\n--- RandomForest Otimizado ---")
+print("\n--- RandomForest Otimizado ---")
 print(f" Train Acc: {train_acc_tuned:.4f} F1: {train_f1_tuned:.4f}")
 print(f" Test Acc: {test_acc_tuned:.4f} F1: {test_f1_tuned:.4f}")
 
 gap_tuned = train_f1_tuned - test_f1_tuned
-if gap_tuned > 0.05: # Um gap menor que 0.10 é geralmente aceitável, vamos usar 0.05 para ser mais rigoroso
-    print(f"  ⚠️ Possível overfitting ainda presente (gap F1 train - test = {gap_tuned:.4f})")
+# Um gap menor que 0.10 é geralmente aceitável,
+# vamos usar 0.05 para ser mais rigoroso
+if gap_tuned > 0.05:
+    print(
+        f"  ⚠️ Possível overfitting ainda presente "
+        f"(gap F1 train - test = {gap_tuned:.4f})"
+    )
 else:
     print(f"  ✓ Gap aceitável (gap F1 train - test = {gap_tuned:.4f})")
 
@@ -397,7 +456,7 @@ print(classification_report(y_test, y_test_pred_tuned))
 best_pipeline = joblib.load('best_model.pkl')
 y_test_pred = best_pipeline.predict(X_test)
 if hasattr(best_pipeline.named_steps['classifier'], 'predict_proba'):
-    y_test_proba = best_pipeline.predict_proba(X_test)[:,1]
+    y_test_proba = best_pipeline.predict_proba(X_test)[:, 1]
 else:
     # fallback para decision_function
     try:
@@ -409,7 +468,10 @@ print("Classification Report:")
 print(classification_report(y_test, y_test_pred, digits=4))
 
 # Confusion matrix
-ConfusionMatrixDisplay.from_estimator(best_pipeline, X_test, y_test, display_labels=['Não Cancelado','Cancelado'])
+ConfusionMatrixDisplay.from_estimator(
+    best_pipeline, X_test, y_test,
+    display_labels=['Não Cancelado', 'Cancelado']
+)
 plt.title('Matriz de Confusão - Melhor Modelo')
 plt.show()
 
@@ -427,22 +489,29 @@ else:
 print("🔍 Iniciando análise de explicabilidade do modelo...")
 print("=" * 60)
 
-from sklearn.inspection import permutation_importance
+from sklearn.inspection import permutation_importance  # noqa
 
 # Configurações otimizadas
 SHAP_CACHE_FILE = 'shap_values_cache.pkl'
 SAMPLE_SIZE = 50  # Amostra reduzida para SHAP
 BACKGROUND_SIZE = 20  # Tamanho do background para KernelExplainer
 
+
 def load_or_compute_shap():
     """Carrega resultados do cache ou calcula novos"""
 
     # Verificar se cache existe
     if os.path.exists(SHAP_CACHE_FILE):
-        print("📁 Cache encontrado! Carregando resultados SHAP pré-computados...")
+        print(
+            "📁 Cache encontrado! "
+            "Carregando resultados SHAP pré-computados..."
+        )
         return joblib.load(SHAP_CACHE_FILE)
 
-    print("🔄 Cache não encontrado. Calculando SHAP (pode demorar alguns minutos)...")
+    print(
+        "🔄 Cache não encontrado. "
+        "Calculando SHAP (pode demorar alguns minutos)..."
+    )
 
     # 1. Carregar modelo e pré-processador
     print("📥 Carregando modelo treinado...")
@@ -453,13 +522,20 @@ def load_or_compute_shap():
     # 2. Obter nomes das features transformadas
     print("🔧 Preparando nomes das features...")
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_cols = X_train.select_dtypes(include=['object']).columns.tolist()
+    categorical_cols = X_train.select_dtypes(
+        include=['object']
+    ).columns.tolist()
 
-    cat_feature_names = preproc.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out(categorical_cols)
+    cat_feature_names = preproc.named_transformers_['cat'].named_steps[
+        'onehot'
+    ].get_feature_names_out(categorical_cols)
     feature_names_transformed = numeric_cols + list(cat_feature_names)
 
     print(f"   • {len(numeric_cols)} features numéricas")
-    print(f"   • {len(categorical_cols)} features categóricas → {len(cat_feature_names)} após one-hot")
+    print(
+        f"   • {len(categorical_cols)} features categóricas → "
+        f"{len(cat_feature_names)} após one-hot"
+    )
     print(f"   • Total: {len(feature_names_transformed)} features")
 
     # 3. Transformar dados de teste
@@ -472,13 +548,19 @@ def load_or_compute_shap():
 
     try:
         if isinstance(clf, (RandomForestClassifier, xgb.XGBClassifier)):
-            print("   • Usando TreeExplainer (mais rápido para modelos baseados em árvores)")
+            print(
+                "   • Usando TreeExplainer "
+                "(mais rápido para modelos baseados em árvores)"
+            )
             explainer = shap.TreeExplainer(clf)
             Xshap = X_test_transformed[:SAMPLE_SIZE]
             shap_values = explainer.shap_values(Xshap)
 
         else:
-            print(f"   • Usando KernelExplainer com {BACKGROUND_SIZE} amostras de background")
+            print(
+                f"   • Usando KernelExplainer com {BACKGROUND_SIZE} "
+                "amostras de background"
+            )
             background = shap.sample(X_test_transformed, BACKGROUND_SIZE)
             explainer = shap.KernelExplainer(clf.predict_proba, background)
             Xshap = X_test_transformed[:SAMPLE_SIZE]
@@ -489,15 +571,24 @@ def load_or_compute_shap():
     except Exception as e:
         print(f"⚠️  Erro no SHAP: {e}")
         print("🔄 Alternando para Permutation Importance...")
-        return compute_permutation_importance(clf, X_test_transformed, y_test, feature_names_transformed)
+        return compute_permutation_importance(
+            clf, X_test_transformed, y_test, feature_names_transformed
+        )
 
     # 5. Processar resultados SHAP
     print("📊 Processando resultados SHAP...")
     if isinstance(shap_values, list):
         sv = shap_values[1] if len(shap_values) > 1 else shap_values[0]
-        print("   • Modelo de classificação - usando valores da classe positiva")
+        print(
+            "   • Modelo de classificação - "
+            "usando valores da classe positiva"
+        )
     else:
-        sv = shap_values.values if hasattr(shap_values, 'values') else shap_values
+        sv = (
+            shap_values.values
+            if hasattr(shap_values, 'values')
+            else shap_values
+        )
         print("   • Modelo de regressão ou explainer direto")
 
     # 6. Salvar no cache
@@ -514,19 +605,23 @@ def load_or_compute_shap():
 
     return results
 
-def compute_permutation_importance(clf, X_test_transformed, y_test, feature_names):
+
+def compute_permutation_importance(clf, X_test_transformed, y_test,
+                                   feature_names):
     """Calcula importância por permutação como fallback"""
     print("🎯 Calculando Permutation Importance...")
 
     sample_size = min(300, len(X_test_transformed))
-    sample_idx = np.random.choice(len(X_test_transformed), size=sample_size, replace=False)
+    sample_idx = np.random.choice(
+        len(X_test_transformed), size=sample_size, replace=False
+    )
 
     print(f"   • Amostra: {sample_size} instâncias")
     print("   • Executando permutações...")
 
     result = permutation_importance(
         clf, X_test_transformed[sample_idx], y_test.iloc[sample_idx],
-        n_repeats=3, random_state=42, n_jobs=1 # Alterado n_jobs=-1 para n_jobs=1
+        n_repeats=3, random_state=42, n_jobs=1
     )
 
     results = {
@@ -540,6 +635,7 @@ def compute_permutation_importance(clf, X_test_transformed, y_test, feature_name
     joblib.dump(results, SHAP_CACHE_FILE)
 
     return results
+
 
 # EXECUÇÃO PRINCIPAL
 print("\n🚀 Executando análise de explicabilidade...")
@@ -596,15 +692,22 @@ print("\n✅ Análise de explicabilidade concluída!")
 print(f"💾 Resultados salvos em: {SHAP_CACHE_FILE}")
 print("=" * 60)
 
-# Preparação de Dados para Clusterização: Carregamento, Imputação e Escalonamento
+# Preparação de Dados para Clusterização: Carregamento, Imputação e
+# Escalonamento
 
 # 1. Carregue o arquivo 'hotel_bookings_processed.parquet'
 df_cluster = pd.read_parquet('hotel_bookings_processed.parquet')
-print(f"DataFrame 'df_cluster' carregado com {df_cluster.shape[0]} linhas e {df_cluster.shape[1]} colunas.")
+print(
+    f"DataFrame 'df_cluster' carregado com {df_cluster.shape[0]} linhas e "
+    f"{df_cluster.shape[1]} colunas."
+)
 
 # 2. Selecione apenas as colunas numéricas
 X_cluster_raw = df_cluster.select_dtypes(include=[np.number])
-print(f"'X_cluster_raw' criado com {X_cluster_raw.shape[1]} colunas numéricas.")
+print(
+    f"'X_cluster_raw' criado com {X_cluster_raw.shape[1]} "
+    "colunas numéricas."
+)
 
 # 3. Instancie e aplique SimpleImputer
 imputer = SimpleImputer(strategy='median')
@@ -619,6 +722,9 @@ print("Dados escalados usando StandardScaler.")
 # 5. Salve o SimpleImputer e o StandardScaler
 joblib.dump(imputer, 'cluster_imputer.pkl')
 joblib.dump(scaler, 'cluster_scaler.pkl')
-print("Imputer e Scaler salvos como 'cluster_imputer.pkl' e 'cluster_scaler.pkl'.")
+print(
+    "Imputer e Scaler salvos como 'cluster_imputer.pkl' e "
+    "'cluster_scaler.pkl'."
+)
 
 print("Preparação de dados para clusterização concluída.")
