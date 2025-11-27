@@ -788,3 +788,106 @@ plt.show()
 
 print("\nVisualizações finalizadas com sucesso.")
 
+# Plot detalhado da Silhueta para 2, 3, 6, 10 e 13 clusters
+
+import matplotlib.cm as cm
+# Valores de K para os quais queremos gerar o plot detalhado da silhueta
+requested_ks = [2, 3, 6, 10, 13]
+
+for n_clusters in requested_ks:
+    # Cria uma subplot com 1 linha e 1 coluna para o plot da silhueta
+    fig, ax1 = plt.subplots(1, 1)
+    fig.set_size_inches(12, 7)
+
+    # O primeiro plot é o gráfico da silhueta
+    # A escala do eixo x vai de -1 a 1, mas como os scores de silhueta são geralmente positivos,
+    # vamos usar uma escala mais apropriada para a maioria dos casos.
+    ax1.set_xlim([-0.1, 1])
+    #adicionar espaço em branco entre os clusters para o plot
+    ax1.set_ylim([0, len(X_cluster_scaled) + (n_clusters + 1) * 10])
+
+    # Inicializa o clusterizador com n_clusters e um random_state para reprodutibilidade
+    clusterer = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    cluster_labels = clusterer.fit_predict(X_cluster_scaled)
+
+    # Calcula o silhouette_score médio para todos os dados
+    silhouette_avg = silhouette_score(X_cluster_scaled, cluster_labels)
+    print(f"Para n_clusters = {n_clusters}, o score médio de silhueta de: {silhouette_avg:.4f}")
+
+    # Calcula os scores de silhueta para cada amostra
+    sample_silhouette_values = silhouette_samples(X_cluster_scaled, cluster_labels)
+
+    y_lower = 10
+    for i in range(n_clusters):
+        # Agregue os scores de silhueta para as amostras pertencentes ao cluster i, e ordene-os
+        ith_cluster_silhouette_values = \
+            sample_silhouette_values[cluster_labels == i]
+
+        ith_cluster_silhouette_values.sort()
+
+        size_cluster_i = ith_cluster_silhouette_values.shape[0]
+        y_upper = y_lower + size_cluster_i
+
+        color = cm.nipy_spectral(float(i) / n_clusters)
+        ax1.fill_betweenx(np.arange(y_lower, y_upper),
+                          0, ith_cluster_silhouette_values,
+                          facecolor=color, edgecolor=color, alpha=0.7)
+
+        # Rotula os plots de silhueta com seus números de cluster no meio
+        ax1.text(-0.05, y_lower + 0.5 * size_cluster_i, str(i))
+
+        # Calcula o novo y_lower para o próximo plot
+        y_lower = y_upper + 10  # 10 para as 0 amostras
+
+    ax1.set_title(f"Plot de Silhueta para {n_clusters} Clusters", fontweight='bold')
+    ax1.set_xlabel("Coeficientes de Silhueta")
+    ax1.set_ylabel("Rótulo do Cluster")
+
+    # A linha vertical para o score de silhueta médio de todos os valores
+    ax1.axvline(x=silhouette_avg, color="red", linestyle="--", label=f'Média: {silhouette_avg:.2f}')
+    ax1.legend()
+
+    plt.suptitle(f"Análise de Silhueta para k = {n_clusters}", fontsize=16, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(f'silhouette_plot_k{n_clusters}_standalone.png', dpi=300, bbox_inches='tight')
+    print(f"   \u2705 Gráfico salvo: silhouette_plot_k{n_clusters}_standalone.png")
+    plt.show()
+
+# análise dos clusters
+
+df_proc = pd.read_parquet('hotel_bookings_processed.parquet')  # do cell 3
+numeric_cols_cluster = df_proc.select_dtypes(include=[np.number]).columns.tolist()
+
+X_cluster = df_proc[numeric_cols_cluster].copy()
+imputer = SimpleImputer(strategy='median')
+scaler = StandardScaler()
+X_cluster_imp = imputer.fit_transform(X_cluster)
+X_cluster_scaled = scaler.fit_transform(X_cluster_imp)
+
+n_clusters = 3
+# Aplicar KMeans diretamente com 3 clusters
+kmeans_final = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+cluster_labels = kmeans_final.fit_predict(X_cluster_scaled)
+df_proc['cluster'] = cluster_labels
+
+# Calcular silhouette score para o modelo final
+silhouette_avg = silhouette_score(X_cluster_scaled, cluster_labels)
+print(f"KMeans com {n_clusters} clusters (random_state=42) - Silhouette Score: {silhouette_avg:.4f}")
+
+# Análise por cluster
+cluster_analysis = df_proc.groupby('cluster').agg({
+    'is_canceled':'mean',
+    'adr':'mean',
+    'lead_time':'mean',
+    'total_guests':'mean',
+    'total_nights':'mean',
+    'total_of_special_requests':'mean'
+}).round(3)
+display(cluster_analysis)
+
+# Salvar objetos
+joblib.dump(kmeans_final, 'kmeans_final_3_clusters.pkl')
+joblib.dump(scaler, 'cluster_scaler.pkl')
+joblib.dump(imputer, 'cluster_imputer.pkl')
+df_proc.to_parquet('hotel_bookings_analyzed.parquet', index=False)
+print("KMeans salvo: kmeans_final_3_clusters.pkl, dados salvos: hotel_bookings_analyzed.parquet")
