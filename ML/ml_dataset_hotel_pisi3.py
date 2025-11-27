@@ -41,7 +41,7 @@ import umap
 
 # clustering
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score, RocCurveDisplay, ConfusionMatrixDisplay
+from sklearn.metrics import silhouette_score, RocCurveDisplay, ConfusionMatrixDisplay, silhouette_samples
 
 # display
 from IPython.display import display
@@ -724,3 +724,67 @@ else:
 # Salvar clusterização
 df_cluster.to_parquet("hotel_bookings_clustered.parquet", index=False)
 print("\nClusterização concluída. Resultados salvos em 'hotel_bookings_clustered.parquet'.")
+
+# VISUALIZAÇÃO DOS CLUSTERS
+print("\nGerando visualizações dos clusters…")
+
+df_cluster = pd.read_parquet("hotel_bookings_clustered.parquet")
+X_scaled = X_cluster_scaled
+
+# ============================================
+# PCA para projeção 2D
+# ============================================
+pca = PCA(n_components=2, random_state=42)
+Xpca = pca.fit_transform(X_scaled)
+
+# ---------------------------------------------------
+# K-Means
+# ---------------------------------------------------
+plt.figure(figsize=(7,5))
+sns.scatterplot(x=Xpca[:,0], y=Xpca[:,1], hue=df_cluster["cluster_kmeans"], palette="tab10")
+plt.title("K-Means — PCA Visualization")
+plt.show()
+
+# ============================================================
+# Gráfico de DENSIDADE (DBSCAN)
+# ============================================================
+
+plt.figure(figsize=(8,6))
+sns.kdeplot(
+    x=Xpca[:,0],
+    y=Xpca[:,1],
+    fill=True,
+    cmap="viridis",
+    thresh=0.03,
+    levels=50
+)
+plt.scatter(Xpca[:,0], Xpca[:,1], c=df_cluster["cluster_dbscan"], s=5, cmap="tab10")
+plt.title("DBSCAN — Densidade + PCA")
+plt.show()
+
+# ============================================================
+# Visualização t-SNE
+# ============================================================
+
+tsne = TSNE(n_components=2, random_state=42)
+Xtsne = tsne.fit_transform(X_scaled)
+
+plt.figure(figsize=(7,5))
+sns.scatterplot(x=Xtsne[:,0], y=Xtsne[:,1], hue=df_cluster["cluster_kmeans"], palette="tab10")
+plt.title("K-Means — t-SNE Visualization")
+plt.show()
+
+# ============================================================
+# Visualização UMAP
+# ============================================================
+
+um = umap.UMAP(n_components=2, random_state=42)
+Xum = um.fit_transform(X_scaled)
+
+plt.figure(figsize=(7,5))
+sns.scatterplot(x=Xum[:,0], y=Xum[:,1], hue=df_cluster["cluster_kmeans"], palette="tab10")
+plt.title("K-Means — UMAP Visualization")
+plt.show()
+
+print("\nVisualizações finalizadas com sucesso.")
+
