@@ -622,3 +622,56 @@ joblib.dump(scaler, 'cluster_scaler.pkl')
 print("Imputer e Scaler salvos como 'cluster_imputer.pkl' e 'cluster_scaler.pkl'.")
 
 print("Preparação de dados para clusterização concluída.")
+
+# Cálculo do SSE (Elbow Method) e do Silhouette Score para K-Means para determinar o número ideal de clusters.
+sse = []
+silhouette_scores = []
+
+# Define o range de K valores para testar
+k_range_sse = range(1, 21)
+k_range_silhouette = range(2, 21)
+
+print("Calculando SSE para K-Means...")
+for k in k_range_sse:
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    kmeans.fit(X_cluster_scaled)
+    sse.append(kmeans.inertia_)
+    print(f"  K={k}: SSE={kmeans.inertia_:.2f}")
+
+print("\nCalculando o Silhouette Scores para K-Means...")
+for k in k_range_silhouette:
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    labels = kmeans.fit_predict(X_cluster_scaled)
+    if len(np.unique(labels)) > 1:
+        score = silhouette_score(X_cluster_scaled, labels)
+        silhouette_scores.append(score)
+        print(f"  K={k}: Silhouette Score={score:.4f}")
+    else:
+        silhouette_scores.append(0.0)
+        print(f"  K={k}: Silhouette Score=N/A (apenas um cluster encontrado)")
+
+print("Cálculos completos. Pronto para plotar.")
+
+# Plote dos resultados do Método do Cotovelo (SSE) e do Silhouette Score para K-Means.
+
+# Plotando o Método do Cotovelo (SSE)
+plt.figure(figsize=(10, 6))
+plt.plot(k_range_sse, sse, marker='o', linestyle='--')
+plt.title('Elbow Method para Determinar K Ótimo (SSE)')
+plt.xlabel('Número de Clusters (K)')
+plt.ylabel('Soma dos Quadrados dos Erros (SSE)')
+plt.xticks(list(k_range_sse))
+plt.grid(True)
+plt.show()
+
+# Plotando o Silhuette Score
+plt.figure(figsize=(10, 6))
+plt.plot(k_range_silhouette, silhouette_scores, marker='o', linestyle='--')
+plt.title('Silhouette Score para Determinar K Ótimo')
+plt.xlabel('Número de Clusters (K)')
+plt.ylabel('Silhouette Score')
+plt.xticks(list(k_range_silhouette))
+plt.grid(True)
+plt.show()
+
+print("Visualização dos scores SSE e Silhouette concluída.")
