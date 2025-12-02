@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import shap
+import umap
 import xgboost as xgb
 from IPython.display import display
 from imblearn.over_sampling import SMOTE
@@ -24,6 +25,7 @@ from sklearn.metrics import (
     classification_report,
     f1_score,
     roc_auc_score,
+    silhouette_score,
 )
 from sklearn.model_selection import (
     RandomizedSearchCV,
@@ -33,6 +35,7 @@ from sklearn.model_selection import (
 )
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.cluster import KMeans
 
 warnings.filterwarnings('ignore')
 
@@ -728,3 +731,272 @@ print(
 )
 
 print("Preparação de dados para clusterização concluída.")
+
+# Cálculo do SSE (Elbow Method) e do Silhouette Score para K-Means para determinar o número ideal de clusters.
+sse = []
+silhouette_scores = []
+
+# Define o range de K valores para testar
+k_range_sse = range(1, 21)
+k_range_silhouette = range(2, 21)
+
+print("Calculando SSE para K-Means...")
+for k in k_range_sse:
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    kmeans.fit(X_cluster_scaled)
+    sse.append(kmeans.inertia_)
+    print(f"  K={k}: SSE={kmeans.inertia_:.2f}")
+
+print("\nCalculando o Silhouette Scores para K-Means...")
+for k in k_range_silhouette:
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    labels = kmeans.fit_predict(X_cluster_scaled)
+    if len(np.unique(labels)) > 1:
+        score = silhouette_score(X_cluster_scaled, labels)
+        silhouette_scores.append(score)
+        print(f"  K={k}: Silhouette Score={score:.4f}")
+    else:
+        silhouette_scores.append(0.0)
+        print(f"  K={k}: Silhouette Score=N/A (apenas um cluster encontrado)")
+
+print("Cálculos completos. Pronto para plotar.")
+
+# Plote dos resultados do Método do Cotovelo (SSE) e do Silhouette Score para K-Means.
+
+# Plotando o Método do Cotovelo (SSE)
+plt.figure(figsize=(10, 6))
+plt.plot(k_range_sse, sse, marker='o', linestyle='--')
+plt.title('Elbow Method para Determinar K Ótimo (SSE)')
+plt.xlabel('Número de Clusters (K)')
+plt.ylabel('Soma dos Quadrados dos Erros (SSE)')
+plt.xticks(list(k_range_sse))
+plt.grid(True)
+plt.show()
+
+# Plotando o Silhuette Score
+plt.figure(figsize=(10, 6))
+plt.plot(k_range_silhouette, silhouette_scores, marker='o', linestyle='--')
+plt.title('Silhouette Score para Determinar K Ótimo')
+plt.xlabel('Número de Clusters (K)')
+plt.ylabel('Silhouette Score')
+plt.xticks(list(k_range_silhouette))
+plt.grid(True)
+plt.show()
+
+print("Visualização dos scores SSE e Silhouette concluída.")
+
+# CLUSTERIZAÇÃO COM TÉCNICAS K-MEANS E DBSCAN
+
+print("\nIniciando clusterização com K-Means e DBSCAN…")
+
+# =========================================================
+# 1) K-MEANS (com 3 clusters e random_state fixo)
+# =========================================================
+
+from sklearn.cluster import KMeans # Garante que KMeans está importado
+from sklearn.metrics import silhouette_score # Garante que silhouette_score está importado
+
+print("\nExecutando K-Means com 3 clusters...")
+n_clusters_kmeans = 3
+kmeans_final = KMeans(n_clusters=n_clusters_kmeans, random_state=42, n_init=10)
+labels_k = kmeans_final.fit_predict(X_cluster_scaled)
+sil_kmeans = silhouette_score(X_cluster_scaled, labels_k)
+df_cluster["cluster_kmeans"] = labels_k
+
+print(f"K-Means \u2192 Silhouette Score: {sil_kmeans:.4f}")
+
+
+# =========================================================
+# 2) DBSCAN
+# =========================================================
+
+from sklearn.cluster import DBSCAN
+
+eps_fixed = 2.4
+min_s_fixed = 10
+
+print(f"\nExecutando DBSCAN com parâmetros fixos: eps={eps_fixed}, min_samples={min_s_fixed}...")
+
+db = DBSCAN(eps=eps_fixed, min_samples=min_s_fixed, n_jobs=-1)
+labels_d = db.fit_predict(X_cluster_scaled)
+
+# DBSCAN pode retornar tudo como ruídos (-1) ou um único cluster (0) evitar isso para silhouette
+unique_labels = len(set(labels_d)) - (1 if -1 in labels_d else 0) # Ignora ruídos
+if unique_labels > 1: # Precisa de pelo menos 2 clusters válidos para Silhouette Score
+    sil_dbscan_fixed = silhouette_score(X_cluster_scaled, labels_d)
+    df_cluster["cluster_dbscan"] = labels_d
+    print(f"DBSCAN  (eps={eps_fixed}, min_samples={min_s_fixed}) | Silhouette: {sil_dbscan_fixed:.4f}")
+else:
+    print(f"DBSCAN  (eps={eps_fixed}, min_samples={min_s_fixed}) | Insuficiente clusters válidos para Silhouette.")
+    df_cluster["cluster_dbscan"] = -1 # Atribui -1 para todos se nenhum cluster válido for encontrado
+
+# Salvar clusterização
+df_cluster.to_parquet("hotel_bookings_clustered.parquet", index=False)
+print("\nClusterização concluída. Resultados salvos em 'hotel_bookings_clustered.parquet'.")
+
+# VISUALIZAÇÃO DOS CLUSTERS
+print("\nGerando visualizações dos clusters…")
+
+df_cluster = pd.read_parquet("hotel_bookings_clustered.parquet")
+X_scaled = X_cluster_scaled
+
+# ============================================
+# PCA para projeção 2D
+# ============================================
+pca = PCA(n_components=2, random_state=42)
+Xpca = pca.fit_transform(X_scaled)
+
+# ---------------------------------------------------
+# K-Means
+# ---------------------------------------------------
+plt.figure(figsize=(7,5))
+sns.scatterplot(x=Xpca[:,0], y=Xpca[:,1], hue=df_cluster["cluster_kmeans"], palette="tab10")
+plt.title("K-Means — PCA Visualization")
+plt.show()
+
+# ============================================================
+# Gráfico de DENSIDADE (DBSCAN)
+# ============================================================
+
+plt.figure(figsize=(8,6))
+sns.kdeplot(
+    x=Xpca[:,0],
+    y=Xpca[:,1],
+    fill=True,
+    cmap="viridis",
+    thresh=0.03,
+    levels=50
+)
+plt.scatter(Xpca[:,0], Xpca[:,1], c=df_cluster["cluster_dbscan"], s=5, cmap="tab10")
+plt.title("DBSCAN — Densidade + PCA")
+plt.show()
+
+# ============================================================
+# Visualização t-SNE
+# ============================================================
+
+tsne = TSNE(n_components=2, random_state=42)
+Xtsne = tsne.fit_transform(X_scaled)
+
+plt.figure(figsize=(7,5))
+sns.scatterplot(x=Xtsne[:,0], y=Xtsne[:,1], hue=df_cluster["cluster_kmeans"], palette="tab10")
+plt.title("K-Means — t-SNE Visualization")
+plt.show()
+
+# ============================================================
+# Visualização UMAP
+# ============================================================
+
+um = umap.UMAP(n_components=2, random_state=42)
+Xum = um.fit_transform(X_scaled)
+
+plt.figure(figsize=(7,5))
+sns.scatterplot(x=Xum[:,0], y=Xum[:,1], hue=df_cluster["cluster_kmeans"], palette="tab10")
+plt.title("K-Means — UMAP Visualization")
+plt.show()
+
+print("\nVisualizações finalizadas com sucesso.")
+
+# Plot detalhado da Silhueta para 2, 3, 6, 10 e 13 clusters
+
+import matplotlib.cm as cm
+# Valores de K para os quais queremos gerar o plot detalhado da silhueta
+requested_ks = [2, 3, 6, 10, 13]
+
+for n_clusters in requested_ks:
+    # Cria uma subplot com 1 linha e 1 coluna para o plot da silhueta
+    fig, ax1 = plt.subplots(1, 1)
+    fig.set_size_inches(12, 7)
+
+    # O primeiro plot é o gráfico da silhueta
+    # A escala do eixo x vai de -1 a 1, mas como os scores de silhueta são geralmente positivos,
+    # vamos usar uma escala mais apropriada para a maioria dos casos.
+    ax1.set_xlim([-0.1, 1])
+    #adicionar espaço em branco entre os clusters para o plot
+    ax1.set_ylim([0, len(X_cluster_scaled) + (n_clusters + 1) * 10])
+
+    # Inicializa o clusterizador com n_clusters e um random_state para reprodutibilidade
+    clusterer = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    cluster_labels = clusterer.fit_predict(X_cluster_scaled)
+
+    # Calcula o silhouette_score médio para todos os dados
+    silhouette_avg = silhouette_score(X_cluster_scaled, cluster_labels)
+    print(f"Para n_clusters = {n_clusters}, o score médio de silhueta de: {silhouette_avg:.4f}")
+
+    # Calcula os scores de silhueta para cada amostra
+    sample_silhouette_values = silhouette_samples(X_cluster_scaled, cluster_labels)
+
+    y_lower = 10
+    for i in range(n_clusters):
+        # Agregue os scores de silhueta para as amostras pertencentes ao cluster i, e ordene-os
+        ith_cluster_silhouette_values = \
+            sample_silhouette_values[cluster_labels == i]
+
+        ith_cluster_silhouette_values.sort()
+
+        size_cluster_i = ith_cluster_silhouette_values.shape[0]
+        y_upper = y_lower + size_cluster_i
+
+        color = cm.nipy_spectral(float(i) / n_clusters)
+        ax1.fill_betweenx(np.arange(y_lower, y_upper),
+                          0, ith_cluster_silhouette_values,
+                          facecolor=color, edgecolor=color, alpha=0.7)
+
+        # Rotula os plots de silhueta com seus números de cluster no meio
+        ax1.text(-0.05, y_lower + 0.5 * size_cluster_i, str(i))
+
+        # Calcula o novo y_lower para o próximo plot
+        y_lower = y_upper + 10  # 10 para as 0 amostras
+
+    ax1.set_title(f"Plot de Silhueta para {n_clusters} Clusters", fontweight='bold')
+    ax1.set_xlabel("Coeficientes de Silhueta")
+    ax1.set_ylabel("Rótulo do Cluster")
+
+    # A linha vertical para o score de silhueta médio de todos os valores
+    ax1.axvline(x=silhouette_avg, color="red", linestyle="--", label=f'Média: {silhouette_avg:.2f}')
+    ax1.legend()
+
+    plt.suptitle(f"Análise de Silhueta para k = {n_clusters}", fontsize=16, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(f'silhouette_plot_k{n_clusters}_standalone.png', dpi=300, bbox_inches='tight')
+    print(f"   \u2705 Gráfico salvo: silhouette_plot_k{n_clusters}_standalone.png")
+    plt.show()
+
+# análise dos clusters
+
+df_proc = pd.read_parquet('hotel_bookings_processed.parquet')  # do cell 3
+numeric_cols_cluster = df_proc.select_dtypes(include=[np.number]).columns.tolist()
+
+X_cluster = df_proc[numeric_cols_cluster].copy()
+imputer = SimpleImputer(strategy='median')
+scaler = StandardScaler()
+X_cluster_imp = imputer.fit_transform(X_cluster)
+X_cluster_scaled = scaler.fit_transform(X_cluster_imp)
+
+n_clusters = 3
+# Aplicar KMeans diretamente com 3 clusters
+kmeans_final = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+cluster_labels = kmeans_final.fit_predict(X_cluster_scaled)
+df_proc['cluster'] = cluster_labels
+
+# Calcular silhouette score para o modelo final
+silhouette_avg = silhouette_score(X_cluster_scaled, cluster_labels)
+print(f"KMeans com {n_clusters} clusters (random_state=42) - Silhouette Score: {silhouette_avg:.4f}")
+
+# Análise por cluster
+cluster_analysis = df_proc.groupby('cluster').agg({
+    'is_canceled':'mean',
+    'adr':'mean',
+    'lead_time':'mean',
+    'total_guests':'mean',
+    'total_nights':'mean',
+    'total_of_special_requests':'mean'
+}).round(3)
+display(cluster_analysis)
+
+# Salvar objetos
+joblib.dump(kmeans_final, 'kmeans_final_3_clusters.pkl')
+joblib.dump(scaler, 'cluster_scaler.pkl')
+joblib.dump(imputer, 'cluster_imputer.pkl')
+df_proc.to_parquet('hotel_bookings_analyzed.parquet', index=False)
+print("KMeans salvo: kmeans_final_3_clusters.pkl, dados salvos: hotel_bookings_analyzed.parquet")
