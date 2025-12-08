@@ -2775,3 +2775,240 @@ def create_booking_changes_chart(df):
         }).round(2)
         
         monthly_changes.columns = ['total_changes', 'avg_changes_per_booking', 'cancel_rate']
+        
+        # Ordem dos meses
+        month_order = ['January', 'February', 'March', 'April', 'May', 'June',
+                       'July', 'August', 'September', 'October', 'November', 'December']
+        monthly_changes = monthly_changes.reindex(month_order, fill_value=0)
+        
+        # Análise por tipo de cliente
+        customer_changes = df.groupby('customer_type').agg({
+            'booking_changes': ['sum', 'mean'],
+            'is_canceled': 'mean'
+        }).round(2)
+        customer_changes.columns = ['total_changes', 'avg_changes_per_booking', 'cancel_rate']
+        
+        return dcc.Graph(
+            figure=make_subplots(
+                rows=2, cols=1,
+                subplot_titles=('Remarcações por Mês', 'Remarcações por Tipo de Cliente'),
+                vertical_spacing=0.15,
+                specs=[[{"secondary_y": True}], [{"type": "bar"}]]
+            ).add_trace(
+                go.Bar(
+                    x=monthly_changes.index,
+                    y=monthly_changes['total_changes'],
+                    name='Total Remarcações',
+                    marker_color=COLORS['primary'],
+                    hovertemplate='<b>%{x}</b><br>Remarcações: %{y}<extra></extra>'
+                ), row=1, col=1
+            ).add_trace(
+                go.Scatter(
+                    x=monthly_changes.index,
+                    y=monthly_changes['cancel_rate'] * 100,
+                    mode='lines+markers',
+                    name='Taxa Cancelamento (%)',
+                    line=dict(color=COLORS['accent'], width=3),
+                    yaxis='y2',
+                    hovertemplate='<b>%{x}</b><br>Cancelamento: %{y:.1f}%<extra></extra>'
+                ), row=1, col=1
+            ).add_trace(
+                go.Bar(
+                    x=customer_changes.index,
+                    y=customer_changes['avg_changes_per_booking'],
+                    marker_color=COLORS['secondary'],
+                    text=[f'{v:.2f}' for v in customer_changes['avg_changes_per_booking']],
+                    textposition='auto',
+                    hovertemplate='<b>%{x}</b><br>Média Remarcações: %{y:.2f}<extra></extra>',
+                    showlegend=False
+                ), row=2, col=1
+            ).update_layout(
+                height=600,
+                plot_bgcolor='white',
+                paper_bgcolor=COLORS['white'],
+                font_color=COLORS['dark'],
+                legend=dict(x=0.7, y=0.85, bgcolor='rgba(255,255,255,0.8)')
+            ).update_yaxes(title_text="Taxa de Cancelamento (%)", secondary_y=True, row=1, col=1)
+        )
+        
+    except Exception as e:
+        print(f"❌ Erro no gráfico de remarcações: {str(e)}")
+        return dcc.Graph(
+            figure=go.Figure().add_annotation(
+                text=f"Erro ao criar gráfico: {str(e)[:50]}...", 
+                x=0.5, y=0.5, xref="paper", yref="paper"
+            )
+        )
+
+
+def create_feature_importance_chart():
+    """Cria gráfico de importância das features"""
+    
+    if feature_importance_df is None or len(feature_importance_df) == 0:
+        return go.Figure().add_annotation(
+            text="Feature importance não disponível", 
+            x=0.5, y=0.5, xref="paper", yref="paper"
+        )
+    
+    # Top 15 features mais importantes
+    top_features = feature_importance_df.head(15)
+    
+    return go.Figure().add_trace(
+        go.Bar(
+            y=top_features['feature'],
+            x=top_features['importance'],
+            orientation='h',
+            marker_color=COLORS['primary'],
+            text=[f"{v:.3f}" for v in top_features['importance']],
+            textposition='auto',
+            hovertemplate='<b>%{y}</b><br>Importância: %{x:.4f}<extra></extra>'
+        )
+    ).update_layout(
+        title="Top 15 Features Mais Importantes (Random Forest)",
+        xaxis_title="Importância",
+        yaxis_title="Features",
+        height=500,
+        plot_bgcolor='white',
+        paper_bgcolor=COLORS['white'],
+        font_color=COLORS['dark'],
+        title_font_color=COLORS['primary'],
+        margin=dict(l=150, r=50, t=80, b=50)
+    )
+
+
+def create_ml_dashboard_optimized(df_filtered):
+    """Cria dashboard ML otimizado para performance"""
+    
+    print("📊 Carregando painel ML otimizado...")
+    
+    # Usar cache para dados pesados
+    ml_cache = get_cached_ml_content()
+    
+    # Métricas básicas (rápidas)
+    total_bookings = len(df_filtered)
+    cancel_rate = df_filtered['is_canceled'].mean() * 100 if len(df_filtered) > 0 else 0
+    avg_adr = df_filtered['adr'].mean() if len(df_filtered) > 0 else 0
+    avg_lead = df_filtered['lead_time'].mean() if len(df_filtered) > 0 else 0
+    
+    return html.Div([
+        # Banner compacto
+        dbc.Row([
+            dbc.Col([
+                dbc.Alert([
+                    html.H5("🎯 Sistema Inteligente de Previsão de Cancelamentos", 
+                           className="alert-heading mb-2",
+                           style={'fontSize': '18px', 'fontWeight': 'bold'}),
+                    html.P("Antecipe cancelamentos e tome decisões estratégicas para maximizar a receita e sua ocupação.", 
+                          className="mb-1", style={'fontSize': '14px'}),
+                    html.Small("Nosso sistema analisa padrões históricos para identificar reservas com maior risco de cancelamento, permitindo que você aja proativamente.", 
+                              style={'opacity': '0.8', 'fontSize': '12px'})
+                ], color="info", style={
+                    'borderRadius': '8px',
+                    'backgroundColor': f'{COLORS["primary"]}10',
+                    'border': f'1px solid {COLORS["primary"]}40',
+                    'padding': '15px',
+                    'marginBottom': '20px'
+                })
+            ], width=12)
+        ], className="mb-3"),
+
+        # Cards de métricas - OTIMIZADOS
+        dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H3("🎯", style={'fontSize': '2rem', 'marginBottom': '10px'}),
+                        html.H4(f"{ml_cache['model_metrics']['accuracy']:.1f}%", 
+                               style={'color': COLORS['primary'], 'fontWeight': 'bold', 'fontSize': '2rem'}),
+                        html.P("Acurácia do Modelo", style={'color': COLORS['dark'], 'marginBottom': '5px'}),
+                        html.Small("Taxa de previsões corretas", style={'color': COLORS['dark'], 'opacity': '0.7'})
+                    ], style={'textAlign': 'center', 'padding': '20px'})
+                ], style={'borderRadius': '12px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'})
+            ], width=3),
+
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H3("📊", style={'fontSize': '2rem', 'marginBottom': '10px'}),
+                        html.H4(f"{cancel_rate:.1f}%", 
+                               style={'color': COLORS['accent'], 'fontWeight': 'bold', 'fontSize': '2rem'}),
+                        html.P("Taxa Atual", style={'color': COLORS['dark'], 'marginBottom': '5px'}),
+                        html.Small("Cancelamentos observados", style={'color': COLORS['dark'], 'opacity': '0.7'})
+                    ], style={'textAlign': 'center', 'padding': '20px'})
+                ], style={'borderRadius': '12px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'})
+            ], width=3),
+
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H3("💰", style={'fontSize': '2rem', 'marginBottom': '10px'}),
+                        html.H4(f"${avg_adr:.0f}", 
+                               style={'color': COLORS['secondary'], 'fontWeight': 'bold', 'fontSize': '2rem'}),
+                        html.P("ADR Médio", style={'color': COLORS['dark'], 'marginBottom': '5px'}),
+                        html.Small("Receita por reserva", style={'color': COLORS['dark'], 'opacity': '0.7'})
+                    ], style={'textAlign': 'center', 'padding': '20px'})
+                ], style={'borderRadius': '12px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'})
+            ], width=3),
+
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H3("📅", style={'fontSize': '2rem', 'marginBottom': '10px'}),
+                        html.H4(f"{avg_lead:.0f} dias", 
+                               style={'color': COLORS['primary'], 'fontWeight': 'bold', 'fontSize': '2rem'}),
+                        html.P("Lead Time", style={'color': COLORS['dark'], 'marginBottom': '5px'}),
+                        html.Small("Antecedência média", style={'color': COLORS['dark'], 'opacity': '0.7'})
+                    ], style={'textAlign': 'center', 'padding': '20px'})
+                ], style={'borderRadius': '12px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'})
+            ], width=3)
+        ], className="mb-4"),
+
+        # ========== LINHA PRINCIPAL: Fatores + Ações ==========
+        dbc.Row([
+            # Fatores mais importantes (CACHE)
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("🔍 Principais Fatores de Risco",
+                                   style={'backgroundColor': COLORS['secondary'], 'color': COLORS['white'], 
+                                         'fontWeight': 'bold', 'padding': '12px 20px'}),
+                    dbc.CardBody([
+                        dcc.Graph(
+                            figure=ml_cache['feature_importance_chart'],
+                            config={'displayModeBar': False}  # Remover barra de ferramentas
+                        )
+                    ], style={'backgroundColor': COLORS['white'], 'padding': '10px'})
+                ], style={'borderRadius': '12px'})
+            ], width=6),
+
+            # Ações recomendadas (ESTÁTICO - RÁPIDO)
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("💼 Ações Recomendadas",
+                                   style={'backgroundColor': COLORS['primary'], 'color': COLORS['white'], 
+                                         'fontWeight': 'bold', 'padding': '12px 20px'}),
+                    dbc.CardBody([
+                        html.Div([
+                            html.Div([
+                                html.H6("🎯 Alto Risco:", style={'color': COLORS['accent'], 'marginBottom': '10px', 'fontSize': '14px'}),
+                                html.Ul([
+                                    html.Li("Lembretes 7 dias antes", style={'marginBottom': '5px', 'fontSize': '13px'}),
+                                    html.Li("Oferecer upgrades/benefícios", style={'marginBottom': '5px', 'fontSize': '13px'}),
+                                    html.Li("Contato direto para confirmar", style={'marginBottom': '5px', 'fontSize': '13px'}),
+                                    html.Li("Política flexível", style={'marginBottom': '5px', 'fontSize': '13px'})
+                                ], style={'color': COLORS['dark'], 'paddingLeft': '15px'})
+                            ], style={'marginBottom': '15px'}),
+
+                            html.Div([
+                                html.H6("💰 Receita:", style={'color': COLORS['secondary'], 'marginBottom': '10px', 'fontSize': '14px'}),
+                                html.Ul([
+                                    html.Li("Ajustar preços por risco", style={'marginBottom': '5px', 'fontSize': '13px'}),
+                                    html.Li("Lista de espera", style={'marginBottom': '5px', 'fontSize': '13px'}),
+                                    html.Li("Tarifas não-reembolsáveis", style={'marginBottom': '5px', 'fontSize': '13px'}),
+                                    html.Li("Monitor sazonal", style={'marginBottom': '5px', 'fontSize': '13px'})
+                                ], style={'color': COLORS['dark'], 'paddingLeft': '15px'})
+                            ])
+                        ], style={'padding': '8px'})
+                    ], style={'backgroundColor': COLORS['white'], 'padding': '15px'})
+                ], style={'borderRadius': '12px'})
+            ], width=6)
+        ], className="mb-4"),
