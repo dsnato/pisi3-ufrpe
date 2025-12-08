@@ -2291,3 +2291,245 @@ def create_ml_analysis_content(df_filtered):
             'adr': 'mean',
             'lead_time': 'mean'
         }).round(2)
+        
+        return html.Div([
+            html.P(f"Análise de {len(df_filtered):,} registros filtrados:", 
+                   style={'marginBottom': '20px'}),
+            
+            dcc.Graph(
+                figure=go.Figure(data=go.Heatmap(
+                    z=cluster_summary['is_canceled'].values.reshape(-1, 1),
+                    x=['Taxa de Cancelamento'],
+                    y=[f"{idx[0]} - {idx[1]}" for idx in cluster_summary.index],
+                    colorscale='RdYlBu_r',
+                    text=[[f"{v:.1%}"] for v in cluster_summary['is_canceled'].values],
+                    texttemplate="%{text}",
+                    hovertemplate='<b>%{y}</b><br>Cancelamento: %{z:.1%}<extra></extra>'
+                )).update_layout(
+                    title="Taxa de Cancelamento por Segmento",
+                    height=400,
+                    plot_bgcolor='white',
+                    paper_bgcolor=COLORS['white']
+                )
+            )
+        ])
+        
+    except Exception as e:
+        return html.P(f"Erro na análise ML: {str(e)}", style={'color': 'red'})
+
+
+def create_market_segment_chart(df_filtered):
+    """Cria gráfico de análise por segmento de mercado"""
+    
+    if len(df_filtered) == 0:
+        return dcc.Graph(figure=go.Figure().add_annotation(
+            text="Nenhum dado disponível", x=0.5, y=0.5, xref="paper", yref="paper"
+        ))
+    
+    try:
+        # Análise por segmento
+        segment_stats = df_filtered.groupby('market_segment').agg({
+            'is_canceled': 'mean',
+            'adr': 'mean'
+        }).round(3)
+        
+        segment_counts = df_filtered['market_segment'].value_counts()
+        
+        return dcc.Graph(
+            figure=make_subplots(
+                rows=2, cols=1,
+                subplot_titles=('Volume por Segmento', 'Taxa de Cancelamento por Segmento'),
+                vertical_spacing=0.15,
+                specs=[[{"type": "bar"}], [{"type": "bar"}]]
+            ).add_trace(
+                go.Bar(
+                    x=segment_counts.index,
+                    y=segment_counts.values,
+                    marker_color=COLORS['secondary'],
+                    text=segment_counts.values,
+                    textposition='auto',
+                    texttemplate='%{text:,}',
+                    hovertemplate='<b>%{x}</b><br>Reservas: %{y:,}<extra></extra>',
+                    showlegend=False
+                ), row=1, col=1
+            ).add_trace(
+                go.Bar(
+                    x=segment_stats.index,
+                    y=segment_stats['is_canceled'] * 100,
+                    marker_color=COLORS['accent'],
+                    text=[f"{v:.1f}%" for v in segment_stats['is_canceled'] * 100],
+                    textposition='auto',
+                    hovertemplate='<b>%{x}</b><br>Cancelamento: %{y:.1f}%<extra></extra>',
+                    showlegend=False
+                ), row=2, col=1
+            ).update_layout(
+                height=500, 
+                plot_bgcolor='white',
+                paper_bgcolor=COLORS['white'], 
+                font_color=COLORS['dark'],
+                margin=dict(l=20, r=20, t=60, b=20)
+            )
+        )
+    except Exception as e:
+        return html.P(f"Erro ao criar gráfico: {str(e)}", style={'color': 'red'})
+
+
+def create_countries_chart(df_filtered):
+    """Cria gráfico dos principais países"""
+    
+    if len(df_filtered) == 0:
+        return dcc.Graph(figure=go.Figure().add_annotation(
+            text="Nenhum dado disponível", x=0.5, y=0.5, xref="paper", yref="paper"
+        ))
+    
+    try:
+        # Top 10 países
+        country_stats = df_filtered['country'].value_counts().head(10)
+        country_cancel = df_filtered.groupby('country')['is_canceled'].mean().loc[country_stats.index]
+        
+        return dcc.Graph(
+            figure=make_subplots(
+                rows=2, cols=1,
+                subplot_titles=('Top 10 Países por Volume', 'Taxa de Cancelamento por País'),
+                vertical_spacing=0.15,
+                specs=[[{"type": "bar"}], [{"type": "bar"}]]
+            ).add_trace(
+                go.Bar(
+                    x=country_stats.index,
+                    y=country_stats.values,
+                    marker_color=COLORS['primary'],
+                    text=country_stats.values,
+                    textposition='auto',
+                    texttemplate='%{text:,}',
+                    hovertemplate='<b>%{x}</b><br>Reservas: %{y:,}<extra></extra>',
+                    showlegend=False
+                ), row=1, col=1
+            ).add_trace(
+                go.Bar(
+                    x=country_cancel.index,
+                    y=country_cancel.values * 100,
+                    marker_color=COLORS['accent'],
+                    text=[f"{v:.1f}%" for v in country_cancel.values * 100],
+                    textposition='auto',
+                    hovertemplate='<b>%{x}</b><br>Cancelamento: %{y:.1f}%<extra></extra>',
+                    showlegend=False
+                ), row=2, col=1
+            ).update_layout(
+                height=500, 
+                plot_bgcolor='white',
+                paper_bgcolor=COLORS['white'], 
+                font_color=COLORS['dark'],
+                margin=dict(l=20, r=20, t=60, b=20)
+            )
+        )
+    except Exception as e:
+        return html.P(f"Erro ao criar gráfico: {str(e)}", style={'color': 'red'})
+
+
+def create_monthly_chart(df_filtered):
+    """Cria gráfico de sazonalidade mensal"""
+    
+    if len(df_filtered) == 0:
+        return dcc.Graph(figure=go.Figure().add_annotation(
+            text="Nenhum dado disponível", x=0.5, y=0.5, xref="paper", yref="paper"
+        ))
+    
+    try:
+        # Ordem correta dos meses
+        month_order = ['January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December']
+        
+        monthly_counts = df_filtered['arrival_date_month'].value_counts().reindex(month_order, fill_value=0)
+        monthly_cancel = df_filtered.groupby('arrival_date_month')['is_canceled'].mean().reindex(month_order, fill_value=0)
+        
+        return dcc.Graph(
+            figure=go.Figure().add_trace(
+                go.Scatter(
+                    x=monthly_counts.index,
+                    y=monthly_counts.values,
+                    mode='lines+markers',
+                    name='Volume de Reservas',
+                    line=dict(color=COLORS['primary'], width=3),
+                    marker=dict(size=8),
+                    hovertemplate='<b>%{x}</b><br>Reservas: %{y:,}<extra></extra>'
+                )
+            ).add_trace(
+                go.Scatter(
+                    x=monthly_cancel.index,
+                    y=monthly_cancel.values * 100,
+                    mode='lines+markers',
+                    name='Taxa Cancelamento (%)',
+                    line=dict(color=COLORS['accent'], width=3),
+                    marker=dict(size=8),
+                    yaxis='y2',
+                    hovertemplate='<b>%{x}</b><br>Cancelamento: %{y:.1f}%<extra></extra>'
+                )
+            ).update_layout(
+                title="Sazonalidade: Volume vs Taxa de Cancelamento",
+                xaxis_title="Mês",
+                yaxis=dict(title="Volume de Reservas", side="left"),
+                yaxis2=dict(title="Taxa de Cancelamento (%)", side="right", overlaying="y"),
+                height=400,
+                plot_bgcolor='white',
+                paper_bgcolor=COLORS['white'],
+                font_color=COLORS['dark'],
+                hovermode='x unified',
+                legend=dict(x=0.7, y=1, bgcolor='rgba(255,255,255,0.8)')
+            )
+        )
+    except Exception as e:
+        return html.P(f"Erro ao criar gráfico: {str(e)}", style={'color': 'red'})
+
+
+def create_occupancy_room_chart(df):
+    """Cria gráfico de ocupação por tipo de quarto - CORRIGIDO"""
+    
+    # ✅ VERIFICAR SE DADOS EXISTEM
+    if len(df) == 0 or 'reserved_room_type' not in df.columns:
+        return dcc.Graph(
+            figure=go.Figure().add_annotation(
+                text="Dados de quartos não disponíveis", 
+                x=0.5, y=0.5, xref="paper", yref="paper",
+                font=dict(size=16, color=COLORS['dark'])
+            ).update_layout(
+                height=400,
+                plot_bgcolor='white',
+                paper_bgcolor=COLORS['white']
+            )
+        )
+    
+    try:
+        # ✅ CORREÇÃO: Usar nomes corretos das colunas
+        # Simular dados de ocupação (baseado em reservas não canceladas)
+        occupancy_data = df[df['is_canceled'] == 0].groupby('reserved_room_type').agg({
+            'room_capacity': 'first',  # Capacidade do quarto
+            'adr': 'count'  # Número de reservas (usar adr como contador)
+        }).reset_index()
+        
+        occupancy_data.columns = ['room_type', 'capacity', 'bookings']
+        
+        # Verificar se temos dados
+        if len(occupancy_data) == 0:
+            return dcc.Graph(
+                figure=go.Figure().add_annotation(
+                    text="Nenhuma reserva confirmada disponível", 
+                    x=0.5, y=0.5, xref="paper", yref="paper"
+                )
+            )
+        
+        occupancy_data['occupancy_rate'] = (occupancy_data['bookings'] / occupancy_data['capacity'] * 100).round(1)
+        occupancy_data = occupancy_data.sort_values('occupancy_rate', ascending=False)
+        
+        # Análise de receita por quarto
+        revenue_by_room = df[df['is_canceled'] == 0].groupby('reserved_room_type').agg({
+            'adr': 'sum',  # Receita total
+            'total_nights': 'sum'  # Total de noites
+        }).reset_index()
+        
+        # ✅ CORREÇÃO: Renomear colunas corretamente
+        revenue_by_room.columns = ['room_type', 'total_revenue', 'total_nights']
+        
+        # Verificar se total_nights > 0 para evitar divisão por zero
+        revenue_by_room = revenue_by_room[revenue_by_room['total_nights'] > 0]
+        revenue_by_room['revenue_per_night'] = (revenue_by_room['total_revenue'] / revenue_by_room['total_nights']).round(2)
+        
