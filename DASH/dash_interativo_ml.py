@@ -3012,3 +3012,251 @@ def create_ml_dashboard_optimized(df_filtered):
                 ], style={'borderRadius': '12px'})
             ], width=6)
         ], className="mb-4"),
+
+        # ========== PERFIS DE CLIENTES (CACHE) ==========
+        dbc.Row([
+            # Coluna 1: Visualização PCA dos Clusters
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("🔬 Análise PCA dos Perfis de Clientes",
+                                   style={'backgroundColor': COLORS['accent'], 'color': COLORS['white'], 
+                                         'fontWeight': 'bold', 'padding': '12px 20px'}),
+                    dbc.CardBody([
+                        html.P("Visualização bidimensional dos clusters identificados por IA:",
+                               style={'marginBottom': '15px', 'color': COLORS['dark'], 'fontSize': '14px'}),
+                        
+                        dcc.Graph(
+                            figure=ml_cache['pca_chart'],
+                            config={'displayModeBar': False}
+                        ),
+                        
+                        # Explicação técnica (ESTÁTICO)
+                        html.Div([
+                            html.H6("📊 Interpretação:", style={'color': COLORS['accent'], 'marginBottom': '8px', 'fontSize': '14px'}),
+                            html.P("• Cada ponto representa uma reserva", 
+                                   style={'color': COLORS['dark'], 'marginBottom': '4px', 'fontSize': '13px'}),
+                            html.P("• Cores diferentes = perfis distintos de comportamento", 
+                                   style={'color': COLORS['dark'], 'marginBottom': '4px', 'fontSize': '13px'}),
+                            html.P("• Distância entre pontos = similaridade comportamental", 
+                                   style={'color': COLORS['dark'], 'marginBottom': '0px', 'fontSize': '13px'})
+                        ], style={
+                            'padding': '12px', 
+                            'backgroundColor': COLORS['background'], 
+                            'borderRadius': '6px',
+                            'marginTop': '10px'
+                        })
+                    ], style={'backgroundColor': COLORS['white'], 'padding': '15px'})
+                ], style={'borderRadius': '12px'})
+            ], width=6),
+            
+            # Coluna 2: Tabela Resumo dos Clusters
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("📋 Resumo dos Perfis Identificados",
+                                   style={'backgroundColor': COLORS['primary'], 'color': COLORS['white'], 
+                                         'fontWeight': 'bold', 'padding': '12px 20px'}),
+                    dbc.CardBody([
+                        html.P("Características principais de cada perfil:",
+                               style={'marginBottom': '15px', 'color': COLORS['dark'], 'fontSize': '14px'}),
+                        
+                        dcc.Graph(
+                            figure=ml_cache['cluster_chart'],
+                            config={'displayModeBar': False}
+                        ),
+                        
+                        # Como usar (ESTÁTICO)
+                        html.Hr(),
+                        html.Div([
+                            html.H6("📌 Como usar:", style={'color': COLORS['secondary'], 'marginBottom': '8px', 'fontSize': '14px'}),
+                            html.P("• Personalize comunicação por perfil", 
+                                   style={'color': COLORS['dark'], 'marginBottom': '4px', 'fontSize': '13px'}),
+                            html.P("• Ajuste retenção baseado no perfil", 
+                                   style={'color': COLORS['dark'], 'marginBottom': '4px', 'fontSize': '13px'}),
+                            html.P("• Identifique oportunidades de upselling", 
+                                   style={'color': COLORS['dark'], 'marginBottom': '0px', 'fontSize': '13px'})
+                        ], style={
+                            'padding': '12px', 
+                            'backgroundColor': COLORS['background'], 
+                            'borderRadius': '6px',
+                            'marginTop': '10px'
+                        })
+                    ], style={'backgroundColor': COLORS['white'], 'padding': '15px'})
+                ], style={'borderRadius': '12px'})
+            ], width=6)
+        ])
+    ])
+
+
+def create_ceo_dashboard_fast(df_filtered):
+    """Versão otimizada do dashboard CEO"""
+    
+    total_bookings = len(df_filtered)
+    cancel_rate = df_filtered['is_canceled'].mean() * 100 if len(df_filtered) > 0 else 0
+    avg_adr = df_filtered['adr'].mean() if len(df_filtered) > 0 else 0
+    avg_lead = df_filtered['lead_time'].mean() if len(df_filtered) > 0 else 0
+    
+    return html.Div([
+        # Banner compacto
+        dbc.Row([
+            dbc.Col([
+                dbc.Alert([
+                    html.H5("📊 Visão Geral do Negócio", 
+                           className="alert-heading mb-2", 
+                           style={'fontSize': '18px', 'fontWeight': 'bold'}),
+                    html.P(f"Análise de {total_bookings:,} reservas para decisões estratégicas.", 
+                          className="mb-1", style={'fontSize': '14px'}),
+                    html.Small("Painel executivo otimizado", 
+                              style={'opacity': '0.8', 'fontSize': '12px'})
+                ], color="primary", style={
+                    'borderRadius': '8px',
+                    'backgroundColor': f'{COLORS["primary"]}10',
+                    'border': f'1px solid {COLORS["primary"]}40',
+                    'padding': '15px',
+                    'marginBottom': '20px'
+                })
+            ], width=12)
+        ], className="mb-3"),
+
+        # Cards de métricas
+        dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.H3("🏨", style={'fontSize': '2.5rem', 'marginBottom': '10px'}),
+                            html.H2(f"{total_bookings:,}", 
+                                   style={'color': COLORS['primary'], 'fontWeight': 'bold', 
+                                          'fontSize': '2.5rem', 'marginBottom': '5px'}),
+                            html.P("Total de Reservas", 
+                                  style={'color': COLORS['dark'], 'marginBottom': '5px', 'fontSize': '16px'}),
+                            html.Small("Base atual de análise", 
+                                      style={'color': COLORS['dark'], 'opacity': '0.7'})
+                        ], style={'textAlign': 'center'})
+                    ], style={'padding': '25px'})
+                ], style={'borderRadius': '12px', 'boxShadow': '0 4px 6px rgba(0,0,0,0.1)', 'border': 'none'})
+            ], width=3),
+
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.H3("⚠️", style={'fontSize': '2.5rem', 'marginBottom': '10px'}),
+                            html.H2(f"{cancel_rate:.1f}%", 
+                                   style={'color': COLORS['accent'], 'fontWeight': 'bold', 
+                                          'fontSize': '2.5rem', 'marginBottom': '5px'}),
+                            html.P("Taxa de Cancelamento", 
+                                  style={'color': COLORS['dark'], 'marginBottom': '5px', 'fontSize': '16px'}),
+                            html.Small("Média atual", 
+                                      style={'color': COLORS['dark'], 'opacity': '0.7'})
+                        ], style={'textAlign': 'center'})
+                    ], style={'padding': '25px'})
+                ], style={'borderRadius': '12px', 'boxShadow': '0 4px 6px rgba(0,0,0,0.1)', 'border': 'none'})
+            ], width=3),
+
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.H3("💰", style={'fontSize': '2.5rem', 'marginBottom': '10px'}),
+                            html.H2(f"${avg_adr:.0f}", 
+                                   style={'color': COLORS['secondary'], 'fontWeight': 'bold', 
+                                          'fontSize': '2.5rem', 'marginBottom': '5px'}),
+                            html.P("Diária Média (ADR)", 
+                                  style={'color': COLORS['dark'], 'marginBottom': '5px', 'fontSize': '16px'}),
+                            html.Small("Receita média por quarto", 
+                                      style={'color': COLORS['dark'], 'opacity': '0.7'})
+                        ], style={'textAlign': 'center'})
+                    ], style={'padding': '25px'})
+                ], style={'borderRadius': '12px', 'boxShadow': '0 4px 6px rgba(0,0,0,0.1)', 'border': 'none'})
+            ], width=3),
+
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.Div([
+                            html.H3("📅", style={'fontSize': '2.5rem', 'marginBottom': '10px'}),
+                            html.H2(f"{avg_lead:.0f}", 
+                                   style={'color': COLORS['primary'], 'fontWeight': 'bold', 
+                                          'fontSize': '2.5rem', 'marginBottom': '5px'}),
+                            html.P("Antecedência Média", 
+                                  style={'color': COLORS['dark'], 'marginBottom': '5px', 'fontSize': '16px'}),
+                            html.Small("Dias antes do check-in", 
+                                      style={'color': COLORS['dark'], 'opacity': '0.7'})
+                        ], style={'textAlign': 'center'})
+                    ], style={'padding': '25px'})
+                ], style={'borderRadius': '12px', 'boxShadow': '0 4px 6px rgba(0,0,0,0.1)', 'border': 'none'})
+            ], width=3)
+        ], className="mb-4"),
+
+        # Gráficos (os mesmos, mas mantidos)
+        dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader(f"🏨 Performance por Tipo de Hotel",
+                                   style={'backgroundColor': COLORS['primary'], 'color': COLORS['white'], 
+                                          'fontWeight': 'bold', 'fontSize': '16px'}),
+                    dbc.CardBody([
+                        create_hotel_performance_chart(df_filtered)
+                    ], style={'backgroundColor': COLORS['white']})
+                ], style={'borderRadius': '12px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'})
+            ], width=6),
+            
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("💼 Análise por Segmento de Mercado",
+                                   style={'backgroundColor': COLORS['secondary'], 'color': COLORS['white'], 
+                                          'fontWeight': 'bold', 'fontSize': '16px'}),
+                    dbc.CardBody([
+                        create_market_segment_chart(df_filtered)
+                    ], style={'backgroundColor': COLORS['white']})
+                ], style={'borderRadius': '12px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'})
+            ], width=6)
+        ], className="mb-4"),
+
+        dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("🌍 Principais Países de Origem",
+                                   style={'backgroundColor': COLORS['primary'], 'color': COLORS['white'], 
+                                          'fontWeight': 'bold', 'fontSize': '16px'}),
+                    dbc.CardBody([
+                        create_countries_chart(df_filtered)
+                    ], style={'backgroundColor': COLORS['white']})
+                ], style={'borderRadius': '12px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'})
+            ], width=6),
+            
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("📅 Sazonalidade das Reservas",
+                                   style={'backgroundColor': COLORS['secondary'], 'color': COLORS['white'], 
+                                          'fontWeight': 'bold', 'fontSize': '16px'}),
+                    dbc.CardBody([
+                        create_monthly_chart(df_filtered)
+                    ], style={'backgroundColor': COLORS['white']})
+                ], style={'borderRadius': '12px', 'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'})
+            ], width=6)
+        ], className="mb-4")
+    ])
+
+
+# Inicializar cache na primeira execução
+print("🔄 Inicializando cache ML...")
+get_cached_ml_content()
+
+# ============================================================================
+# 7. EXECUÇÃO DO DASHBOARD - VERSÃO CORRIGIDA
+# ============================================================================
+
+print("\n" + "=" * 80)
+print("🚀 INICIANDO SERVIDOR DASHBOARD")
+print("=" * 80)
+
+if __name__ == '__main__':
+    print("📋 Dashboard pronto para execução!")
+    print("⚠️  No Google Colab, use o seguinte comando para visualizar:")
+    print("    from google.colab.output import eval_js")
+    print("    print(eval_js(\"google.colab.kernel.proxyPort(8050)\"))")
+    print("\n🎯 Executando servidor...")
+
+    # CORREÇÃO: Usar app.run() em vez de app.run_server()
+    app.run(debug=False, host='0.0.0.0', port=8050)
