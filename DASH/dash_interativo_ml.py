@@ -2533,3 +2533,245 @@ def create_occupancy_room_chart(df):
         revenue_by_room = revenue_by_room[revenue_by_room['total_nights'] > 0]
         revenue_by_room['revenue_per_night'] = (revenue_by_room['total_revenue'] / revenue_by_room['total_nights']).round(2)
         
+        return dcc.Graph(
+            figure=make_subplots(
+                rows=1, cols=2,
+                subplot_titles=('Taxa de Ocupação por Categoria', 'Receita por Noite'),
+                specs=[[{"type": "bar"}, {"type": "bar"}]]
+            ).add_trace(
+                go.Bar(
+                    x=occupancy_data['room_type'],
+                    y=occupancy_data['occupancy_rate'],
+                    text=[f'{v}%' for v in occupancy_data['occupancy_rate']],
+                    textposition='auto',
+                    marker_color=COLORS['primary'],
+                    hovertemplate='<b>Quarto %{x}</b><br>Ocupação: %{y}%<br>Reservas: ' + 
+                                 occupancy_data['bookings'].astype(str) + '<extra></extra>',
+                    showlegend=False
+                ), row=1, col=1
+            ).add_trace(
+                go.Bar(
+                    x=revenue_by_room['room_type'],
+                    y=revenue_by_room['revenue_per_night'],
+                    text=[f'${v:.0f}' for v in revenue_by_room['revenue_per_night']],
+                    textposition='auto',
+                    marker_color=COLORS['secondary'],
+                    hovertemplate='<b>Quarto %{x}</b><br>Receita/Noite: $%{y:.2f}<extra></extra>',
+                    showlegend=False
+                ), row=1, col=2
+            ).update_layout(
+                height=400,
+                plot_bgcolor='white',
+                paper_bgcolor=COLORS['white'],
+                font_color=COLORS['dark']
+            )
+        )
+        
+    except Exception as e:
+        print(f"❌ Erro no gráfico de ocupação: {str(e)}")
+        return dcc.Graph(
+            figure=go.Figure().add_annotation(
+                text=f"Erro ao criar gráfico: {str(e)[:50]}...", 
+                x=0.5, y=0.5, xref="paper", yref="paper",
+                font=dict(size=14, color='red')
+            ).update_layout(height=400)
+        )
+
+
+def create_adr_room_chart(df):
+    """Cria gráfico de ADR por tipo de quarto - CORRIGIDO"""
+    
+    # ✅ VERIFICAR SE DADOS EXISTEM
+    if len(df) == 0 or 'reserved_room_type' not in df.columns:
+        return dcc.Graph(
+            figure=go.Figure().add_annotation(
+                text="Dados de quartos não disponíveis", 
+                x=0.5, y=0.5, xref="paper", yref="paper"
+            )
+        )
+    
+    try:
+        # Calcular ADR por tipo de quarto
+        adr_by_room = df.groupby('reserved_room_type')['adr'].agg(['mean', 'count']).reset_index()
+        adr_by_room.columns = ['room_type', 'adr_mean', 'count']
+        adr_by_room = adr_by_room.sort_values('adr_mean', ascending=False)
+        
+        # Verificar se temos dados
+        if len(adr_by_room) == 0:
+            return dcc.Graph(
+                figure=go.Figure().add_annotation(
+                    text="Nenhum dado de ADR disponível", 
+                    x=0.5, y=0.5, xref="paper", yref="paper"
+                )
+            )
+        
+        # Calcular também por mês para mostrar sazonalidade
+        monthly_adr = df.groupby(['arrival_date_month', 'reserved_room_type'])['adr'].mean().reset_index()
+        
+        # Criar figura base
+        fig = make_subplots(
+            rows=2, cols=1,
+            subplot_titles=('ADR Médio por Categoria de Quarto', 'Variação Mensal do ADR'),
+            vertical_spacing=0.15,
+            specs=[[{"type": "bar"}], [{"type": "scatter"}]]
+        )
+        
+        # Gráfico 1: ADR por categoria
+        fig.add_trace(
+            go.Bar(
+                x=adr_by_room['room_type'],
+                y=adr_by_room['adr_mean'],
+                text=[f'${v:.0f}' for v in adr_by_room['adr_mean']],
+                textposition='auto',
+                marker_color=COLORS['secondary'],
+                hovertemplate='<b>Quarto %{x}</b><br>ADR: $%{y:.2f}<br>Reservas: ' + 
+                             adr_by_room['count'].astype(str) + '<extra></extra>',
+                showlegend=False
+            ), row=1, col=1
+        )
+        
+        # Gráfico 2: Variação mensal (apenas se temos dados suficientes)
+        if len(monthly_adr) > 0:
+            # Pegar os 3 tipos de quarto mais comuns
+            top_room_types = adr_by_room.head(3)['room_type'].tolist()
+            colors = [COLORS['primary'], COLORS['secondary'], COLORS['accent']]
+            
+            for i, room_type in enumerate(top_room_types):
+                room_data = monthly_adr[monthly_adr['reserved_room_type'] == room_type]
+                if len(room_data) > 0:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=room_data['arrival_date_month'],
+                            y=room_data['adr'],
+                            mode='lines+markers',
+                            name=f'Categoria {room_type}',
+                            line=dict(color=colors[i % len(colors)], width=3)
+                        ), row=2, col=1
+                    )
+        
+        fig.update_layout(
+            height=600,
+            plot_bgcolor='white',
+            paper_bgcolor=COLORS['white'],
+            font_color=COLORS['dark'],
+            hovermode='x unified',
+            legend=dict(x=0.7, y=0.4, bgcolor='rgba(255,255,255,0.8)')
+        )
+        
+        return dcc.Graph(figure=fig)
+        
+    except Exception as e:
+        print(f"❌ Erro no gráfico de ADR: {str(e)}")
+        return dcc.Graph(
+            figure=go.Figure().add_annotation(
+                text=f"Erro ao criar gráfico: {str(e)[:50]}...", 
+                x=0.5, y=0.5, xref="paper", yref="paper"
+            )
+        )
+
+
+def create_parking_analysis_chart(df):
+    """Análise de estacionamento vs cancelamento"""
+    
+    # ✅ VERIFICAR SE DADOS EXISTEM
+    if len(df) == 0 or 'has_parking_request' not in df.columns:
+        return dcc.Graph(
+            figure=go.Figure().add_annotation(
+                text="Dados de estacionamento não disponíveis", 
+                x=0.5, y=0.5, xref="paper", yref="paper"
+            )
+        )
+    
+    try:
+        # Análise por solicitação de estacionamento
+        parking_analysis = df.groupby('has_parking_request').agg({
+            'is_canceled': ['count', 'sum', 'mean'],
+            'adr': 'mean'
+        }).round(3)
+        
+        # ✅ CORREÇÃO: Flatten column names corretamente
+        parking_analysis.columns = ['total_bookings', 'cancellations', 'cancel_rate', 'avg_adr']
+        
+        # ✅ VERIFICAR SE TEMOS AMBOS OS GRUPOS (com e sem estacionamento)
+        if len(parking_analysis) < 2:
+            return dcc.Graph(
+                figure=go.Figure().add_annotation(
+                    text="Dados insuficientes para análise de estacionamento", 
+                    x=0.5, y=0.5, xref="paper", yref="paper"
+                )
+            )
+        
+        # Definir labels
+        parking_labels = []
+        for idx in parking_analysis.index:
+            if idx == 0:
+                parking_labels.append('Sem Estacionamento')
+            elif idx == 1:
+                parking_labels.append('Com Estacionamento')
+            else:
+                parking_labels.append(f'Grupo {idx}')
+        
+        return dcc.Graph(
+            figure=make_subplots(
+                rows=1, cols=2,
+                subplot_titles=('Taxa de Cancelamento', 'Perfil de Gasto (ADR)'),
+                specs=[[{"type": "bar"}, {"type": "bar"}]]
+            ).add_trace(
+                go.Bar(
+                    x=parking_labels,
+                    y=parking_analysis['cancel_rate'] * 100,
+                    text=[f'{v:.1f}%' for v in parking_analysis['cancel_rate'] * 100],
+                    textposition='auto',
+                    marker_color=[COLORS['accent'], COLORS['accent']],
+                    hovertemplate='<b>%{x}</b><br>Cancelamento: %{y:.1f}%<br>Total: ' + 
+                                 parking_analysis['total_bookings'].astype(str) + '<extra></extra>',
+                    showlegend=False
+                ), row=1, col=1
+            ).add_trace(
+                go.Bar(
+                    x=parking_labels,
+                    y=parking_analysis['avg_adr'],
+                    text=[f'${v:.0f}' for v in parking_analysis['avg_adr']],
+                    textposition='auto',
+                    marker_color=[COLORS['secondary'], COLORS['primary']],
+                    hovertemplate='<b>%{x}</b><br>ADR Médio: $%{y:.2f}<extra></extra>',
+                    showlegend=False
+                ), row=1, col=2
+            ).update_layout(
+                height=400,
+                plot_bgcolor='white',
+                paper_bgcolor=COLORS['white'],
+                font_color=COLORS['dark'],
+            )
+        )
+        
+    except Exception as e:
+        print(f"❌ Erro no gráfico de estacionamento: {str(e)}")
+        return dcc.Graph(
+            figure=go.Figure().add_annotation(
+                text=f"Erro ao criar gráfico: {str(e)[:50]}...", 
+                x=0.5, y=0.5, xref="paper", yref="paper"
+            )
+        )
+
+
+def create_booking_changes_chart(df):
+    """Análise de remarcações - CORRIGIDO"""
+    
+    # ✅ VERIFICAR SE DADOS EXISTEM
+    if len(df) == 0 or 'booking_changes' not in df.columns:
+        return dcc.Graph(
+            figure=go.Figure().add_annotation(
+                text="Dados de remarcações não disponíveis", 
+                x=0.5, y=0.5, xref="paper", yref="paper"
+            )
+        )
+    
+    try:
+        # Análise temporal de remarcações
+        monthly_changes = df.groupby('arrival_date_month').agg({
+            'booking_changes': ['sum', 'mean'],
+            'is_canceled': 'mean'
+        }).round(2)
+        
+        monthly_changes.columns = ['total_changes', 'avg_changes_per_booking', 'cancel_rate']
