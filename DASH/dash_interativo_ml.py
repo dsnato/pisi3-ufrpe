@@ -20,7 +20,6 @@ import dash_bootstrap_components as dbc
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import seaborn as sns
 import xgboost as xgb
@@ -30,7 +29,6 @@ from imblearn.pipeline import Pipeline as ImbPipeline
 from plotly.subplots import make_subplots
 from sklearn.cluster import KMeans
 from sklearn.compose import ColumnTransformer
-from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
@@ -312,8 +310,8 @@ print("🔧 Verificando e criando colunas necessárias...")
 if 'is_family' not in df.columns:
     print("   • Criando coluna 'is_family'...")
     df['is_family'] = (
-        (df['adults'].fillna(0) > 0) & 
-        ((df['children'].fillna(0) > 0) | (df['babies'].fillna(0) > 0))
+        (df['adults'].fillna(0) > 0)
+        & ((df['children'].fillna(0) > 0) | (df['babies'].fillna(0) > 0))
     ).astype(int)
 
 # Criar coluna booking_changes se não existir
@@ -324,7 +322,7 @@ if 'booking_changes' not in df.columns:
 # Verificar outras colunas necessárias
 required_columns = [
     'arrival_date_week_number', 'arrival_date_day_of_month',
-    'previous_bookings_not_canceled', 'reserved_room_type', 
+    'previous_bookings_not_canceled', 'reserved_room_type',
     'assigned_room_type', 'agent', 'company'
 ]
 
@@ -569,64 +567,35 @@ def perform_clustering(df):
     """Executa análise de clusters"""
 
     print(f"🎯 Realizando análise de clusters com {len(df):,} registros...")
-    
+
     # 🔧 USAR TODAS AS FEATURES NUMÉRICAS (como no ML)
     numeric_features = df.select_dtypes(include=[np.number]).columns.tolist()
-    
+
     # Remover target se presente
     if 'is_canceled' in numeric_features:
         numeric_features.remove('is_canceled')
-    
+
     print(f"   • Usando {len(numeric_features)} features numéricas")
-    
+
     X_cluster = df[numeric_features].copy()
-    
+
     # 🎯 PREPROCESSAMENTO IGUAL AO ML
     # 1. Imputer com mediana (não fillna(0))
     from sklearn.impute import SimpleImputer
     imputer = SimpleImputer(strategy='median')
     X_cluster_imputed = imputer.fit_transform(X_cluster)
-    
+
     # 2. StandardScaler
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X_cluster_imputed)
-    
+
     # 3. K-means com mesma configuração
     kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
     clusters = kmeans.fit_predict(X_scaled)
-    
+
     print(f"   • {len(set(clusters))} clusters identificados")
 
-    # PCA para visualização - MELHORADO
-    print("   • Executando PCA para visualização...")
-    pca = PCA(n_components=2, random_state=42)
-    X_pca = pca.fit_transform(X_scaled)
-
-    # Variância explicada pelos componentes principais
-    variance_explained = pca.explained_variance_ratio_
-    print(f"   • Variância explicada PC1: {variance_explained[0]:.2%}")
-    print(f"   • Variância explicada PC2: {variance_explained[1]:.2%}")
-    print(f"   • Variância total explicada: {sum(variance_explained):.2%}")
-    
-    # ✅ NOVA ANÁLISE: Separação dos clusters no espaço PCA
-    cluster_separation = {}
-    for i in range(3):
-        cluster_points = X_pca[clusters == i]
-        cluster_center = np.mean(cluster_points, axis=0)
-        cluster_spread = np.std(cluster_points, axis=0)
-        cluster_separation[i] = {
-            'center': cluster_center,
-            'spread': cluster_spread,
-            'size': len(cluster_points)
-        }
-    
-    print("   • Análise de separação dos clusters:")
-    for i, stats in cluster_separation.items():
-        print(f"     Cluster {i}: Centro=({stats['center'][0]:.2f}, {stats['center'][1]:.2f}), "
-              f"Dispersão=({stats['spread'][0]:.2f}, {stats['spread'][1]:.2f}), "
-              f"Tamanho={stats['size']}")
-
-    # Análise dos clusters
+    # Análise dos clusters (sem PCA - economizando processamento)
     df_clustered = df.copy()
     df_clustered['cluster'] = clusters
 
@@ -635,7 +604,6 @@ def perform_clustering(df):
         'adr': 'mean',
         'lead_time': 'mean',
         'total_guests': 'mean',
-        'total_nights': 'mean',
         'total_nights': 'mean',
         'booking_changes': 'mean',
         'total_of_special_requests': 'mean'
@@ -696,13 +664,9 @@ def perform_clustering(df):
 
     return {
         'clusters': clusters,
-        'X_pca': X_pca,
         'cluster_analysis': cluster_analysis,
-        'kmeans': kmeans,
-        'variance_explained': variance_explained,
+        'cluster_data': df_clustered,  # DataFrame com cluster assignments
         'cluster_labels': cluster_labels,
-        'cluster_separation': cluster_separation,  # ← NOVO
-        'pca': pca,  # ← NOVO: Salvar objeto PCA
         'imputer': imputer,
         'scaler': scaler,
         'feature_names': numeric_features
@@ -728,22 +692,25 @@ print("✅ Análise de clusters concluída!")
 _ml_cache = {
     'model_metrics': None,
     'feature_importance_chart': None,
-    'pca_chart': None,  # ← NOVO
+    # 'heatmap_chart': None,  # ← NOVO: Mapa de Calor
+    'distribution_chart': None,  # ← NOVO: Distribuição Comparativa
+    'scatter_chart': None,  # ← NOVO: Dispersão
     'cluster_chart': None,
     'last_update': None
 }
 
+
 def get_cached_ml_content():
     """Retorna conteúdo ML pré-calculado para performance"""
-    
+
     global _ml_cache
-    
+
     # Se já existe cache, usar
     if _ml_cache['model_metrics'] is not None:
         return _ml_cache
-    
+
     print("🔄 Calculando conteúdo ML (primeira vez)...")
-    
+
     try:
         # 1. Métricas dos modelos (já calculadas)
         model_metrics = {
@@ -751,11 +718,11 @@ def get_cached_ml_content():
             'f1_score': ml_results['LogisticRegression']['f1_score'] * 100,
             'auc': ml_results['LogisticRegression']['auc'] * 100
         }
-        
+
         # 2. Gráfico de Feature Importance (simplificado)
         if feature_importance_df is not None and len(feature_importance_df) > 0:
             top_features = feature_importance_df.head(10)  # Apenas top 10
-            
+
             feature_chart = go.Figure().add_trace(
                 go.Bar(
                     y=top_features['feature'],
@@ -776,52 +743,59 @@ def get_cached_ml_content():
             )
         else:
             feature_chart = go.Figure().add_annotation(
-                text="Feature importance não disponível", 
+                text="Feature importance não disponível",
                 x=0.5, y=0.5, xref="paper", yref="paper"
             )
-        
-        # 3. ✅ NOVO: Gráfico PCA dos Clusters
-        pca_chart = create_pca_cluster_chart()
-        
+
+        # 3. ✅ NOVOS GRÁFICOS: Substituindo PCA por 3 gráficos mais eficientes
+        # heatmap_chart = create_heatmap_chart()
+        distribution_chart = create_distribution_comparison_chart()
+        scatter_chart = create_scatter_comparison_chart()
+
         # 4. Gráfico de Clusters (simplificado)
         cluster_chart = create_simple_cluster_chart()
-        
+
         # Salvar no cache
         _ml_cache = {
             'model_metrics': model_metrics,
             'feature_importance_chart': feature_chart,
-            'pca_chart': pca_chart,  # ← NOVO
+            # 'heatmap_chart': heatmap_chart,  # ← NOVO
+            'distribution_chart': distribution_chart,  # ← NOVO
+            'scatter_chart': scatter_chart,  # ← NOVO
             'cluster_chart': cluster_chart,
             'last_update': pd.Timestamp.now()
         }
-        
+
         print("✅ Conteúdo ML cacheado com sucesso!")
         return _ml_cache
-        
+
     except Exception as e:
         print(f"❌ Erro no cache ML: {str(e)}")
         # Fallback simples
         return {
             'model_metrics': {'accuracy': 75.0, 'f1_score': 70.0, 'auc': 80.0},
             'feature_importance_chart': go.Figure(),
-            'pca_chart': go.Figure(),  # ← NOVO
+            # 'heatmap_chart': go.Figure(),  # ← NOVO
+            'distribution_chart': go.Figure(),  # ← NOVO
+            'scatter_chart': go.Figure(),  # ← NOVO
             'cluster_chart': go.Figure(),
             'last_update': pd.Timestamp.now()
         }
 
+
 def create_simple_cluster_chart():
     """Cria gráfico de clusters otimizado"""
-    
+
     try:
         # Usar dados já calculados do clustering
         cluster_data = clustering_results['cluster_analysis']
-        
+
         return go.Figure().add_trace(
             go.Table(
                 header=dict(
                     values=['Perfil', 'Cancelamento', 'ADR Médio', 'Antecedência'],
                     fill_color=COLORS['primary'],
-                    font=dict(color=COLORS['white'], size=12),
+                    font=dict(color=COLORS['white'], size=17, family='Arial'),
                     align='center'
                 ),
                 cells=dict(
@@ -832,49 +806,51 @@ def create_simple_cluster_chart():
                         [f"{v:.0f} dias" for v in cluster_data['lead_time']]
                     ],
                     fill_color=COLORS['background'],
-                    font=dict(color=COLORS['dark'], size=11),
-                    align='center'
+                    font=dict(color=COLORS['dark'], size=15, family='Arial'),
+                    align='center',
+                    height=30
                 )
             )
         ).update_layout(
-            height=250,
+            height=150,
             margin=dict(l=10, r=10, t=10, b=10)
         )
-        
+
     except Exception as e:
         print(f"❌ Erro no gráfico de clusters: {str(e)}")
         return go.Figure().add_annotation(
-            text="Dados de clustering não disponíveis", 
+            text="Dados de clustering não disponíveis",
             x=0.5, y=0.5, xref="paper", yref="paper"
         )
 
+
 def create_pca_cluster_chart():
     """Cria gráfico PCA dos clusters otimizado"""
-    
+
     try:
         # Usar dados já calculados do clustering
         if 'X_pca' not in clustering_results or 'clusters' not in clustering_results:
             return go.Figure().add_annotation(
-                text="Dados PCA não disponíveis", 
+                text="Dados PCA não disponíveis",
                 x=0.5, y=0.5, xref="paper", yref="paper",
                 font=dict(size=16, color=COLORS['dark'])
             )
-        
+
         X_pca = clustering_results['X_pca']
         clusters = clustering_results['clusters']
         variance_explained = clustering_results['variance_explained']
         cluster_labels = clustering_results['cluster_labels']
-        
+
         # Definir cores para os clusters
         colors = [COLORS['primary'], COLORS['secondary'], COLORS['accent']]
-        
+
         fig = go.Figure()
-        
+
         # Adicionar pontos para cada cluster
         for i in range(len(set(clusters))):
             cluster_mask = clusters == i
             cluster_points = X_pca[cluster_mask]
-            
+
             fig.add_trace(
                 go.Scatter(
                     x=cluster_points[:, 0],
@@ -887,16 +863,21 @@ def create_pca_cluster_chart():
                         opacity=0.7,
                         line=dict(width=1, color='white')
                     ),
-                    hovertemplate=f'<b>{cluster_labels[i]}</b><br>' +
-                                 'PC1: %{x:.2f}<br>' +
-                                 'PC2: %{y:.2f}<extra></extra>',
+                    hovertemplate=(
+                        f'<b>{cluster_labels[i]}</b><br>'
+                        'PC1: %{x:.2f}<br>'
+                        'PC2: %{y:.2f}<extra></extra>'
+                    ),
                 )
             )
-        
+
         # Layout do gráfico
         fig.update_layout(
-            title=f'Análise PCA dos Clusters de Clientes<br>' +
-                  f'<sub>Variância Explicada: PC1={variance_explained[0]:.1%}, PC2={variance_explained[1]:.1%}, Total={sum(variance_explained):.1%}</sub>',
+            title=(
+                'Análise PCA dos Clusters de Clientes<br>'
+                f'<sub>Variância Explicada: PC1={variance_explained[0]:.1%}, '
+                f'PC2={variance_explained[1]:.1%}, Total={sum(variance_explained):.1%}</sub>'
+            ),
             xaxis_title=f'Componente Principal 1 ({variance_explained[0]:.1%})',
             yaxis_title=f'Componente Principal 2 ({variance_explained[1]:.1%})',
             height=450,
@@ -922,7 +903,7 @@ def create_pca_cluster_chart():
     except Exception as e:
         print(f"❌ Erro no gráfico PCA: {str(e)}")
         return go.Figure().add_annotation(
-            text="Erro ao gerar visualização PCA", 
+            text="Erro ao gerar visualização PCA",
             x=0.5, y=0.5, xref="paper", yref="paper",
             font=dict(size=16, color='red')
         ).update_layout(
@@ -930,10 +911,363 @@ def create_pca_cluster_chart():
             plot_bgcolor='white',
             paper_bgcolor=COLORS['white']
         )
+
+
+def create_heatmap_chart():
+    """Cria mapa de calor de correlação entre características principais"""
+    
+    try:
+        if df is None or len(df) == 0:
+            return go.Figure().add_annotation(
+                text="Dados não disponíveis",
+                x=0.5, y=0.5, xref="paper", yref="paper",
+                font=dict(size=16, color=COLORS['dark'])
+            )
+
+        # Selecionar características numéricas principais
+        numeric_features = ['lead_time', 'adr', 'total_nights', 'total_guests', 
+                          'booking_changes', 'total_of_special_requests', 
+                          'previous_cancellations', 'is_canceled']
+        
+        # Criar subset com features disponíveis
+        available_features = [f for f in numeric_features if f in df.columns]
+        df_corr = df[available_features].corr()
+        
+        # Criar labels amigáveis
+        labels_map = {
+            'lead_time': 'Antecedência',
+            'adr': 'Valor Diária',
+            'total_nights': 'Noites',
+            'total_guests': 'Hóspedes',
+            'booking_changes': 'Remarcações',
+            'total_of_special_requests': 'Pedidos Especiais',
+            'previous_cancellations': 'Cancel. Anteriores',
+            'is_canceled': 'Cancelamento'
+        }
+        
+        labels = [labels_map.get(f, f) for f in df_corr.columns]
+        
+        fig = go.Figure(data=go.Heatmap(
+            z=df_corr.values,
+            x=labels,
+            y=labels,
+            colorscale='RdBu',
+            zmid=0,
+            text=df_corr.values,
+            texttemplate='%{text:.2f}',
+            textfont={"size": 10},
+            colorbar=dict(title="Correlação"),
+            hovertemplate='%{y} vs %{x}<br>Correlação: %{z:.3f}<extra></extra>'
+        ))
+        
+        fig.update_layout(
+            title='Mapa de Calor: Correlações entre Características',
+            height=450,
+            plot_bgcolor='white',
+            paper_bgcolor=COLORS['white'],
+            font_color=COLORS['dark'],
+            title_font_color=COLORS['primary'],
+            xaxis={'side': 'bottom'},
+            margin=dict(l=120, r=50, t=80, b=120)
+        )
+        
+        return fig
+        
+    except Exception as e:
+        print(f"❌ Erro no mapa de calor: {str(e)}")
+        return go.Figure().add_annotation(
+            text="Erro ao gerar mapa de calor",
+            x=0.5, y=0.5, xref="paper", yref="paper",
+            font=dict(size=16, color='red')
+        ).update_layout(
+            height=450,
+            plot_bgcolor='white',
+            paper_bgcolor=COLORS['white']
+        )
+
+
+def create_distribution_comparison_chart():
+    """Cria gráficos de distribuição comparativos (Box/Violin Plots)"""
+    
+    try:
+        if clustering_results is None or 'cluster_data' not in clustering_results:
+            return go.Figure().add_annotation(
+                text="Dados de clusters não disponíveis",
+                x=0.5, y=0.5, xref="paper", yref="paper",
+                font=dict(size=16, color=COLORS['dark'])
+            )
+
+        cluster_data = clustering_results['cluster_data']
+        cluster_labels = clustering_results['cluster_labels']
+        colors = [COLORS['primary'], COLORS['secondary'], COLORS['accent']]
+        
+        # Criar subplots para 3 características principais
+        fig = make_subplots(
+            rows=1, cols=3,
+            subplot_titles=('Valor da Diária (ADR)', 'Antecedência (dias)', 'Duração (noites)')
+        )
+        
+        features = ['adr', 'lead_time', 'total_nights']
+        feature_names = ['ADR', 'Lead Time', 'Noites']
+        
+        for col, (feature, name) in enumerate(zip(features, feature_names), start=1):
+            for i, label in enumerate(cluster_labels):
+                cluster_df = cluster_data[cluster_data['cluster'] == i]
+                
+                fig.add_trace(
+                    go.Box(
+                        y=cluster_df[feature],
+                        name=label,
+                        marker_color=colors[i],
+                        showlegend=(col == 1),
+                        boxmean='sd',
+                        hovertemplate=f'<b>{label}</b><br>{name}: %{{y:.1f}}<extra></extra>'
+                    ),
+                    row=1, col=col
+                )
+        
+        fig.update_layout(
+            title=dict(
+                text='Distribuição de Características por Perfil de Cliente',
+                font=dict(size=14)
+            ),
+            height=500,
+            plot_bgcolor='white',
+            paper_bgcolor=COLORS['white'],
+            font=dict(color=COLORS['dark'], size=11),
+            title_font_color=COLORS['primary'],
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.50,
+                xanchor="center",
+                x=0.5,
+                bgcolor='rgba(255,255,255,0.9)',
+                bordercolor=COLORS['primary'],
+                borderwidth=1,
+                font=dict(size=12)
+            ),
+            margin=dict(l=60, r=60, t=80, b=80)
+        )
+        
+        # Atualizar títulos dos subplots para evitar sobreposição
+        fig.update_annotations(
+            font=dict(size=12, family='Arial', color=COLORS['dark'])
+        )
+        
+        return fig
+        
+    except Exception as e:
+        print(f"❌ Erro no gráfico de distribuição: {str(e)}")
+        return go.Figure().add_annotation(
+            text="Erro ao gerar gráfico de distribuição",
+            x=0.5, y=0.5, xref="paper", yref="paper",
+            font=dict(size=16, color='red')
+        ).update_layout(
+            height=450,
+            plot_bgcolor='white',
+            paper_bgcolor=COLORS['white']
+        )
+
+
+def create_scatter_comparison_chart():
+    """Cria gráfico de dispersão com múltiplas técnicas para evitar sobreposição"""
+    
+    try:
+        if clustering_results is None or 'cluster_data' not in clustering_results:
+            return go.Figure().add_annotation(
+                text="Dados de clusters não disponíveis",
+                x=0.5, y=0.5, xref="paper", yref="paper",
+                font=dict(size=16, color=COLORS['dark'])
+            )
+
+        cluster_data = clustering_results['cluster_data']
+        cluster_labels = clustering_results['cluster_labels']
+        colors = [COLORS['primary'], COLORS['secondary'], COLORS['accent']]
+        
+        # Criar subplots: scatter + density contours
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=('Dispersão por Perfil', 'Densidade e Contornos'),
+            specs=[[{"type": "scatter"}, {"type": "scatter"}]],
+            horizontal_spacing=0.12
+        )
+        
+        # SUBPLOT 1: Scatter plot melhorado com menor opacidade e símbolos diferentes
+        symbols = ['circle', 'diamond', 'square']
+        
+        for i, label in enumerate(cluster_labels):
+            cluster_df = cluster_data[cluster_data['cluster'] == i]
+            
+            # Amostrar para melhor performance (max 800 pontos por cluster)
+            if len(cluster_df) > 800:
+                cluster_df = cluster_df.sample(n=800, random_state=42)
+            
+            # Scatter com símbolo único por cluster
+            fig.add_trace(
+                go.Scatter(
+                    x=cluster_df['lead_time'],
+                    y=cluster_df['adr'],
+                    mode='markers',
+                    name=label,
+                    marker=dict(
+                        size=6,
+                        color=colors[i],
+                        opacity=0.4,  # Menor opacidade para ver sobreposição
+                        symbol=symbols[i],
+                        line=dict(width=0.5, color='white')
+                    ),
+                    hovertemplate=(
+                        f'<b>{label}</b><br>'
+                        'Antecedência: %{x:.0f} dias<br>'
+                        'Diária: R$ %{y:.2f}<extra></extra>'
+                    ),
+                    legendgroup=label,
+                    showlegend=True
+                ),
+                row=1, col=1
+            )
+        
+        # SUBPLOT 2: Contornos de densidade (2D histogram contours)
+        for i, label in enumerate(cluster_labels):
+            cluster_df = cluster_data[cluster_data['cluster'] == i]
+            
+            # Usar todos os dados para contornos
+            if len(cluster_df) > 2000:
+                cluster_df = cluster_df.sample(n=2000, random_state=42)
+            
+            # Contornos de densidade
+            fig.add_trace(
+                go.Histogram2dContour(
+                    x=cluster_df['lead_time'],
+                    y=cluster_df['adr'],
+                    name=label,
+                    colorscale=[[0, colors[i]], [1, colors[i]]],
+                    showscale=False,
+                    line=dict(width=2, color=colors[i]),
+                    contours=dict(
+                        coloring='none',  # Apenas linhas, sem preenchimento
+                        showlabels=True,
+                        labelfont=dict(size=10, color=colors[i])
+                    ),
+                    legendgroup=label,
+                    showlegend=False,
+                    hovertemplate=f'<b>{label}</b><br>Densidade: %{{z}}<extra></extra>'
+                ),
+                row=1, col=2
+            )
+        
+        # Adicionar pontos de centróide para cada cluster
+        for i, label in enumerate(cluster_labels):
+            cluster_df = cluster_data[cluster_data['cluster'] == i]
+            centroid_x = cluster_df['lead_time'].mean()
+            centroid_y = cluster_df['adr'].mean()
+            
+            # Centróide no primeiro subplot - SEM TEXTO para evitar sobreposição
+            fig.add_trace(
+                go.Scatter(
+                    x=[centroid_x],
+                    y=[centroid_y],
+                    mode='markers',
+                    name=f'{label} (Centro)',
+                    marker=dict(
+                        size=18,
+                        color=colors[i],
+                        symbol='x-thin',
+                        line=dict(width=3, color='white')
+                    ),
+                    legendgroup=label,
+                    showlegend=False,
+                    hovertemplate=(
+                        f'<b>Centro: {label}</b><br>'
+                        f'Antecedência média: {centroid_x:.0f} dias<br>'
+                        f'Diária média: R$ {centroid_y:.2f}<extra></extra>'
+                    )
+                ),
+                row=1, col=1
+            )
+        
+        # Layout
+        fig.update_layout(
+            title=dict(
+                text='Análise de Dispersão: Antecedência vs Valor da Diária',
+                font=dict(size=14)
+            ),
+            height=550,
+            plot_bgcolor='white',
+            paper_bgcolor=COLORS['white'],
+            font=dict(color=COLORS['dark'], size=11),
+            title_font_color=COLORS['primary'],
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.26,
+                xanchor="center",
+                x=0.5,
+                bgcolor='rgba(255,255,255,0.95)',
+                bordercolor=COLORS['primary'],
+                borderwidth=1,
+                font=dict(size=12)
+            ),
+            margin=dict(l=70, r=70, t=90, b=100)
+        )
+        
+        # Atualizar títulos dos subplots
+        fig.update_annotations(
+            font=dict(size=12, family='Arial', color=COLORS['dark'])
+        )
+        
+        # Atualizar eixos
+        fig.update_xaxes(
+            title_text='Antecedência da Reserva (dias)',
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128,128,128,0.2)',
+            row=1, col=1
+        )
+        fig.update_yaxes(
+            title_text='Valor da Diária (R$)',
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128,128,128,0.2)',
+            row=1, col=1
+        )
+        
+        fig.update_xaxes(
+            title_text='Antecedência da Reserva (dias)',
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128,128,128,0.2)',
+            row=1, col=2
+        )
+        fig.update_yaxes(
+            title_text='Valor da Diária (R$)',
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(128,128,128,0.2)',
+            row=1, col=2
+        )
+        
+        return fig
+        
+    except Exception as e:
+        print(f"❌ Erro no gráfico de dispersão: {str(e)}")
+        return go.Figure().add_annotation(
+            text="Erro ao gerar gráfico de dispersão",
+            x=0.5, y=0.5, xref="paper", yref="paper",
+            font=dict(size=16, color='red')
+        ).update_layout(
+            height=450,
+            plot_bgcolor='white',
+            paper_bgcolor=COLORS['white']
+        )
+
     
 # ============================================================================
 # PREPARAÇÃO DE DADOS PARA PAINEL GERENCIAL
 # ============================================================================
+
 
 def prepare_manager_data(df):
     """Prepara dados específicos para análise gerencial"""
@@ -985,12 +1319,14 @@ def prepare_manager_data(df):
     print("✅ Dados gerenciais preparados!")
     return df_manager
 
+
 # Preparar dados gerenciais
 df_manager = prepare_manager_data(df)
 
 # ============================================================================
 # COMPONENTES DE FILTROS
 # ============================================================================
+
 
 def create_compact_filters_section():
     """Cria seção de filtros compacta e horizontal"""
@@ -1025,215 +1361,250 @@ def create_compact_filters_section():
     return dbc.Card([
         dbc.CardHeader([
             html.Div([
-                html.H5([
-                    "🎛️ Filtros Globais"
-                ], style={'color': COLORS['white'], 'margin': 0, 'display': 'inline-block', 'fontSize': '18px'}),
-                dbc.Badge("Análise Multidimensional", 
-                         color= COLORS['accent'], 
-                         className="ms-3",
-                         style={'fontSize': '11px'}),
+                html.Div([
+                    html.H5("🎛️ Filtrar Dados",
+                            style={'color': COLORS['white'], 'margin': 0, 'fontSize': '18px', 'fontWeight': 'bold'}),
+                    html.Small("Refine sua análise selecionando critérios abaixo",
+                               style={'color': COLORS['white'], 'opacity': '0.9', 'fontSize': '11px', 'display': 'block', 'marginTop': '2px'})
+                ], style={'display': 'inline-block'}),
                 # Status e botões na mesma linha do header
                 html.Div([
                     html.Div(id='filter-status', children=[
-                        dbc.Badge("🟢 Prontos", color="success", className="me-2", style={'fontSize': '11px'}),
-                        html.Small(f"{len(df):,} registros", style={'color': COLORS['white'], 'fontSize': '11px'})
+                        dbc.Badge("🟢 Pronto", color="success", className="me-2", style={'fontSize': '11px'}),
+                        html.Small(f"{len(df):,} reservas", style={'color': COLORS['white'], 'fontSize': '11px'})
                     ], style={'display': 'inline-block', 'marginRight': '15px'}),
-                    
-                    dbc.Button("🎯 Aplicar", id='apply-filters-btn', color="light", size="sm", 
-                              className="me-2", style={'fontSize': '12px', 'padding': '4px 12px'}),
-                    dbc.Button("🔄", id='reset-filters-btn', color="secondary", size="sm", outline=True,
-                              style={'fontSize': '12px', 'padding': '4px 8px'})
+
+                    dbc.Button("✓ Aplicar Filtros", id='apply-filters-btn', color="light", size="sm",
+                               className="me-2", style={'fontSize': '13px', 'padding': '6px 16px', 'fontWeight': 'bold'}),
+                    dbc.Button("↺ Limpar", id='reset-filters-btn', color="secondary", size="sm", outline=True,
+                               style={'fontSize': '13px', 'padding': '6px 12px'})
                 ], style={'float': 'right'})
             ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'width': '100%'})
         ], style={
             'backgroundColor': COLORS['primary'],
             'borderRadius': '10px 10px 0 0',
-            'padding': '10px 20px',
-            'minHeight': '50px'
+            'padding': '12px 20px',
+            'minHeight': '60px'
         }),
         
         dbc.CardBody([
-            # Linha única com todos os filtros
-            dbc.Row([
-                # Coluna 1: Filtros Categóricos
-                dbc.Col([
-                    html.Label("🏨 Hotel", style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '4px'}),
-                    dcc.Dropdown(
-                        id='filter-hotel',
-                        options=[{'label': h, 'value': h} for h in hotels],
-                        value=hotels,
-                        multi=True,
-                        placeholder="Selecione...",
-                        style={'fontSize': '12px'}
-                    )
-                ], width=2),
-                
-                dbc.Col([
-                    html.Label("🌍 País", style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '4px'}),
-                    dcc.Dropdown(
-                        id='filter-country',
-                        options=[{'label': c, 'value': c} for c in countries],
-                        value=top_countries,
-                        multi=True,
-                        placeholder="Selecione...",
-                        style={'fontSize': '12px'}
-                    )
-                ], width=2),
-                
-                dbc.Col([
-                    html.Label("💼 Segmento", style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '4px'}),
-                    dcc.Dropdown(
-                        id='filter-market-segment',
-                        options=[{'label': ms, 'value': ms} for ms in market_segments],
-                        value=market_segments,
-                        multi=True,
-                        placeholder="Selecione...",
-                        style={'fontSize': '12px'}
-                    )
-                ], width=2),
-                
-                # Coluna 2: Sliders Compactos
-                dbc.Col([
-                    html.Label("💰 ADR", style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '4px'}),
-                    dcc.RangeSlider(
-                        id='filter-adr',
-                        min=adr_min,
-                        max=adr_max,
-                        step=10,
-                        value=[adr_min, min(500, adr_max)],
-                        marks={
-                            int(adr_min): f'${int(adr_min)}',
-                            min(500, int(adr_max)): f'${min(500, int(adr_max))}'
-                        },
-                        tooltip={"placement": "bottom", "always_visible": False}
-                    )
-                ], width=2),
-                
-                dbc.Col([
-                    html.Label("📅 Lead Time", style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '4px'}),
-                    dcc.RangeSlider(
-                        id='filter-lead-time',
-                        min=lead_min,
-                        max=min(365, lead_max),
-                        step=5,
-                        value=[lead_min, min(365, lead_max)],
-                        marks={
-                            0: '0',
-                            min(365, int(lead_max)): f'{min(365, int(lead_max))}d'
-                        },
-                        tooltip={"placement": "bottom", "always_visible": False}
-                    )
-                ], width=2),
-                
-                # Coluna 3: Controles Finais
-                dbc.Col([
-                    html.Label("📊 Status", style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '4px'}),
-                    dcc.Checklist(
-                        id='filter-canceled',
-                        options=[
-                            {'label': ' ✅ Mantidas', 'value': 0},
-                            {'label': ' ❌ Canceladas', 'value': 1}
-                        ],
-                        value=[0, 1],
-                        inline=True,
-                        style={'fontSize': '11px'}
-                    )
-                ], width=2)
-            ], className="align-items-end"),
-            
-            # Linha adicional para sliders extras (colapsível)
-            dbc.Collapse([
-                html.Hr(style={'margin': '15px 0 10px 0'}),
+            # Seção: Filtros Básicos (sempre visível)
+            html.Div([
+                html.H6("📍 Filtros Básicos", style={'color': COLORS['primary'], 'fontSize': '13px', 'fontWeight': 'bold', 'marginBottom': '12px'}),
                 dbc.Row([
+                    # Coluna 1: Tipo de Hotel
                     dbc.Col([
-                        html.Label("🛏️ Noites", style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '4px'}),
-                        dcc.RangeSlider(
-                            id='filter-nights',
-                            min=nights_min,
-                            max=min(30, nights_max),
-                            step=1,
-                            value=[nights_min, min(14, nights_max)],
-                            marks={1: '1', min(30, int(nights_max)): f'{min(30, int(nights_max))}'},
-                            tooltip={"placement": "bottom", "always_visible": False}
-                        )
-                    ], width=3),
-                    
-                    dbc.Col([
-                        html.Label("👥 Hóspedes", style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '4px'}),
-                        dcc.RangeSlider(
-                            id='filter-guests',
-                            min=guests_min,
-                            max=min(10, guests_max),
-                            step=1,
-                            value=[guests_min, min(6, guests_max)],
-                            marks={1: '1', min(10, int(guests_max)): f'{min(10, int(guests_max))}'},
-                            tooltip={"placement": "bottom", "always_visible": False}
-                        )
-                    ], width=3),
-                    
-                    dbc.Col([
-                        html.Label("👤 Tipo Cliente", style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '4px'}),
+                        html.Label("Tipo de Estabelecimento", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '6px', 'color': COLORS['dark']}),
                         dcc.Dropdown(
-                            id='filter-customer-type',
-                            options=[{'label': ct, 'value': ct} for ct in customer_types],
-                            value=customer_types,
+                            id='filter-hotel',
+                            options=[{'label': h, 'value': h} for h in hotels],
+                            value=hotels,
                             multi=True,
-                            placeholder="Selecione...",
-                            style={'fontSize': '12px'}
+                            placeholder="Todos os hotéis",
+                            style={'fontSize': '13px'}
                         )
                     ], width=3),
                     
+                    # Coluna 2: País de Origem
                     dbc.Col([
-                        html.Label("👨‍👩‍👧‍👦 Família", style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '4px'}),
+                        html.Label("País de Origem dos Hóspedes", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '6px', 'color': COLORS['dark']}),
+                        dcc.Dropdown(
+                            id='filter-country',
+                            options=[{'label': c, 'value': c} for c in countries],
+                            value=top_countries,
+                            multi=True,
+                            placeholder="Principais países",
+                            style={'fontSize': '13px'}
+                        )
+                    ], width=3),
+                    
+                    # Coluna 3: Segmento de Mercado
+                    dbc.Col([
+                        html.Label("Segmento de Mercado", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '6px', 'color': COLORS['dark']}),
+                        dcc.Dropdown(
+                            id='filter-market-segment',
+                            options=[{'label': ms, 'value': ms} for ms in market_segments],
+                            value=market_segments,
+                            multi=True,
+                            placeholder="Todos os segmentos",
+                            style={'fontSize': '13px'}
+                        )
+                    ], width=3),
+                    
+                    # Coluna 4: Status da Reserva
+                    dbc.Col([
+                        html.Label("Status da Reserva", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '6px', 'color': COLORS['dark']}),
                         dcc.Checklist(
-                            id='filter-family',
+                            id='filter-canceled',
                             options=[
-                                {'label': ' 👤 Individual', 'value': 0},
-                                {'label': ' 👨‍👩‍👧‍👦 Família', 'value': 1}
+                                {'label': ' Ativas', 'value': 0},
+                                {'label': ' Canceladas', 'value': 1}
                             ],
                             value=[0, 1],
                             inline=True,
-                            style={'fontSize': '11px'}
+                            style={'fontSize': '13px', 'marginTop': '8px'},
+                            labelStyle={'marginRight': '15px'}
                         )
                     ], width=3)
+                ], className="mb-3")
+            ]),
+            
+            html.Hr(style={'margin': '20px 0 15px 0', 'opacity': '0.3'}),
+            
+            # Seção: Filtros Avançados (colapsível)
+            dbc.Collapse([
+                html.Div([
+                    html.H6("⚙️ Filtros Avançados", style={'color': COLORS['secondary'], 'fontSize': '13px', 'fontWeight': 'bold', 'marginBottom': '15px'}),
+                    
+                    # Grupo 1: Valores Financeiros
+                    html.Div([
+                        html.Label("Faixa de Valores", style={'fontSize': '12px', 'color': COLORS['dark'], 'opacity': '0.7', 'marginBottom': '10px', 'display': 'block'}),
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Valor da Diária (R$)", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '6px', 'color': COLORS['dark']}),
+                                dcc.RangeSlider(
+                                    id='filter-adr',
+                                    min=adr_min,
+                                    max=adr_max,
+                                    step=10,
+                                    value=[adr_min, min(500, adr_max)],
+                                    marks={
+                                        int(adr_min): f'R$ {int(adr_min)}',
+                                        min(500, int(adr_max)): f'R$ {min(500, int(adr_max))}'
+                                    },
+                                    tooltip={"placement": "bottom", "always_visible": True}
+                                )
+                            ], width=12)
+                        ], className="mb-3")
+                    ]),
+                    
+                    # Grupo 2: Características da Reserva
+                    html.Div([
+                        html.Label("Características da Reserva", style={'fontSize': '12px', 'color': COLORS['dark'], 'opacity': '0.7', 'marginBottom': '10px', 'display': 'block'}),
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Antecedência da Reserva (dias)", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '6px', 'color': COLORS['dark']}),
+                                dcc.RangeSlider(
+                                    id='filter-lead-time',
+                                    min=lead_min,
+                                    max=min(365, lead_max),
+                                    step=10,
+                                    value=[lead_min, min(365, lead_max)],
+                                    marks={
+                                        0: 'Hoje',
+                                        90: '3 meses',
+                                        180: '6 meses',
+                                        min(365, int(lead_max)): f'{min(365, int(lead_max))} dias'
+                                    },
+                                    tooltip={"placement": "bottom", "always_visible": True}
+                                )
+                            ], width=6),
+                            
+                            dbc.Col([
+                                html.Label("Duração da Estadia (noites)", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '6px', 'color': COLORS['dark']}),
+                                dcc.RangeSlider(
+                                    id='filter-nights',
+                                    min=nights_min,
+                                    max=min(30, nights_max),
+                                    step=1,
+                                    value=[nights_min, min(14, nights_max)],
+                                    marks={
+                                        1: '1', 
+                                        7: '1 semana',
+                                        14: '2 semanas',
+                                        min(30, int(nights_max)): f'{min(30, int(nights_max))}'
+                                    },
+                                    tooltip={"placement": "bottom", "always_visible": True}
+                                )
+                            ], width=6)
+                        ], className="mb-3")
+                    ]),
+                    
+                    # Grupo 3: Perfil dos Hóspedes
+                    html.Div([
+                        html.Label("Perfil dos Hóspedes", style={'fontSize': '12px', 'color': COLORS['dark'], 'opacity': '0.7', 'marginBottom': '10px', 'display': 'block'}),
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Número de Pessoas", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '6px', 'color': COLORS['dark']}),
+                                dcc.RangeSlider(
+                                    id='filter-guests',
+                                    min=guests_min,
+                                    max=min(10, guests_max),
+                                    step=1,
+                                    value=[guests_min, min(6, guests_max)],
+                                    marks={1: '1', 2: '2', 4: '4', min(10, int(guests_max)): f'{min(10, int(guests_max))}+'},
+                                    tooltip={"placement": "bottom", "always_visible": True}
+                                )
+                            ], width=4),
+                            
+                            dbc.Col([
+                                html.Label("Tipo de Cliente", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '6px', 'color': COLORS['dark']}),
+                                dcc.Dropdown(
+                                    id='filter-customer-type',
+                                    options=[{'label': ct, 'value': ct} for ct in customer_types],
+                                    value=customer_types,
+                                    multi=True,
+                                    placeholder="Todos os tipos",
+                                    style={'fontSize': '13px'}
+                                )
+                            ], width=4),
+                            
+                            dbc.Col([
+                                html.Label("Composição do Grupo", style={'fontSize': '13px', 'fontWeight': '600', 'marginBottom': '6px', 'color': COLORS['dark']}),
+                                dcc.Checklist(
+                                    id='filter-family',
+                                    options=[
+                                        {'label': ' Individual/Casal', 'value': 0},
+                                        {'label': ' Família/Grupo', 'value': 1}
+                                    ],
+                                    value=[0, 1],
+                                    inline=True,
+                                    style={'fontSize': '13px', 'marginTop': '8px'},
+                                    labelStyle={'marginRight': '15px'}
+                                )
+                            ], width=4)
+                        ])
+                    ])
                 ])
             ], id="advanced-filters", is_open=False),
             
             # Botão para expandir filtros avançados
             html.Div([
                 dbc.Button(
-                    [html.I(className="fas fa-chevron-down me-1"), "Filtros Avançados"],
+                    [html.I(className="fas fa-chevron-down me-1"), "Mostrar Filtros Avançados"],
                     id="toggle-advanced-filters",
                     color="link",
                     size="sm",
-                    style={'fontSize': '12px', 'padding': '5px 0', 'textDecoration': 'none'}
+                    style={'fontSize': '13px', 'padding': '8px 0', 'textDecoration': 'none', 'color': COLORS['secondary']}
                 )
-            ], style={'textAlign': 'center', 'marginTop': '10px'})
+            ], style={'textAlign': 'center', 'marginTop': '5px'})
             
         ], style={
-            'backgroundColor': COLORS['white'], 
+            'backgroundColor': COLORS['white'],
             'padding': '15px 20px',
             'borderRadius': '0 0 10px 10px'
         })
     ], style={
-        'borderRadius': '10px', 
+        'borderRadius': '10px',
         'boxShadow': '0 4px 8px rgba(0,0,0,0.1)',
         'border': f'1px solid {COLORS["primary"]}40',
         'marginBottom': '20px'
     })
 
+
 # ============================================================================
 # FUNÇÃO DE FILTRAGEM DOS DADOS
 # ============================================================================
 
-def filter_data(df, hotels, countries, market_segments, customer_types, 
-                adr_range, lead_range, nights_range, guests_range, 
+
+def filter_data(df, hotels, countries, market_segments, customer_types,
+                adr_range, lead_range, nights_range, guests_range,
                 canceled_status, family_status):
     """Aplica todos os filtros nos dados"""
-    
+
     try:
         df_filtered = df.copy()
-        
+
         # Filtros categóricos
         if hotels and len(hotels) > 0:
             df_filtered = df_filtered[df_filtered['hotel'].isin(hotels)]
@@ -1250,26 +1621,26 @@ def filter_data(df, hotels, countries, market_segments, customer_types,
         # Filtros numéricos
         if adr_range:
             df_filtered = df_filtered[
-                (df_filtered['adr'] >= adr_range[0]) & 
-                (df_filtered['adr'] <= adr_range[1])
+                (df_filtered['adr'] >= adr_range[0])
+                & (df_filtered['adr'] <= adr_range[1])
             ]
-        
+
         if lead_range:
             df_filtered = df_filtered[
-                (df_filtered['lead_time'] >= lead_range[0]) & 
-                (df_filtered['lead_time'] <= lead_range[1])
+                (df_filtered['lead_time'] >= lead_range[0])
+                & (df_filtered['lead_time'] <= lead_range[1])
             ]
-        
+
         if nights_range:
             df_filtered = df_filtered[
-                (df_filtered['total_nights'] >= nights_range[0]) & 
-                (df_filtered['total_nights'] <= nights_range[1])
+                (df_filtered['total_nights'] >= nights_range[0])
+                & (df_filtered['total_nights'] <= nights_range[1])
             ]
-        
+
         if guests_range:
             df_filtered = df_filtered[
-                (df_filtered['total_guests'] >= guests_range[0]) & 
-                (df_filtered['total_guests'] <= guests_range[1])
+                (df_filtered['total_guests'] >= guests_range[0])
+                & (df_filtered['total_guests'] <= guests_range[1])
             ]
         
         # Filtros especiais
@@ -1366,7 +1737,7 @@ app.layout = dbc.Container([
             ]
         ),
 
-        # Tab 3: Previsão de Cancelamentos 
+        # Tab 3: Previsão de Cancelamentos
         dcc.Tab(
             label='🎯 Previsão de Cancelamentos',
             style={'padding': '10px', 'fontWeight': 'bold'},
@@ -1376,7 +1747,7 @@ app.layout = dbc.Container([
             ]
         ),
 
-        # Tab 4: Simulação 
+        # Tab 4: Simulação
         dcc.Tab(
             label='🎲 Simulador de Cancelamento',
             style={'padding': '10px', 'fontWeight': 'bold'},
@@ -1385,13 +1756,13 @@ app.layout = dbc.Container([
                 dbc.Row([
                     dbc.Col([
                         dbc.Alert([
-                            html.H5("🎲 Simulador de Risco", 
-                                   className="alert-heading mb-2",
-                                   style={'fontSize': '18px', 'fontWeight': 'bold'}),
-                            html.P("Simule cenários e avalie riscos de cancelamento.", 
-                                  className="mb-1", style={'fontSize': '14px'}),
-                            html.Small("Ferramenta para análise prévia de reservas", 
-                                      style={'opacity': '0.8', 'fontSize': '12px'})
+                            html.H5("🎲 Simulador de Risco",
+                                    className="alert-heading mb-2",
+                                    style={'fontSize': '18px', 'fontWeight': 'bold'}),
+                            html.P("Simule cenários e avalie riscos de cancelamento.",
+                                   className="mb-1", style={'fontSize': '14px'}),
+                            html.Small("Ferramenta para análise prévia de reservas",
+                                       style={'opacity': '0.8', 'fontSize': '12px'})
                         ], color="info", style={
                             'borderRadius': '8px',
                             'backgroundColor': f'{COLORS["primary"]}10',
@@ -1514,6 +1885,7 @@ app.layout = dbc.Container([
         )
     ])
 ], fluid=True, style={'backgroundColor': COLORS['background'], 'padding': '20px'})
+
 
 # ============================================================================
 # 6. CALLBACKS DO DASHBOARD
@@ -1687,16 +2059,18 @@ def make_prediction(
     [dash.dependencies.State("advanced-filters", "is_open")]
 )
 def toggle_advanced_filters(n_clicks, is_open):
-    if n_clicks:
-        if is_open:
-            return False, [html.I(className="fas fa-chevron-down me-1"), "Filtros Avançados"]
-        else:
-            return True, [html.I(className="fas fa-chevron-up me-1"), "Ocultar Filtros Avançados"]
+    if n_clicks is None or n_clicks == 0:
+        # Estado inicial
+        return False, [html.I(className="fas fa-chevron-down me-1"), "Mostrar Filtros Avançados"]
     
-    return False, [html.I(className="fas fa-chevron-down me-1"), "Filtros Avançados"]
+    # Toggle o estado
+    if is_open:
+        return False, [html.I(className="fas fa-chevron-down me-1"), "Mostrar Filtros Avançados"]
+    else:
+        return True, [html.I(className="fas fa-chevron-up me-1"), "Ocultar Filtros Avançados"]
 
 
-# Callback para resetar filtros 
+# Callback para resetar filtros
 @app.callback(
     [Output('filter-hotel', 'value'),
      Output('filter-country', 'value'),
@@ -1773,10 +2147,10 @@ def reset_filters(n_clicks):
      dash.dependencies.State('filter-canceled', 'value'),
      dash.dependencies.State('filter-family', 'value')]
 )
-def update_filter_status(apply_clicks, reset_clicks, hotels, countries, market_segments, 
-                        customer_types, adr_range, lead_range, nights_range, 
-                        guests_range, canceled_status, family_status):
-    
+def update_filter_status(apply_clicks, reset_clicks, hotels, countries, market_segments,
+                         customer_types, adr_range, lead_range, nights_range,
+                         guests_range, canceled_status, family_status):
+
     # Determinar qual botão foi clicado
     ctx = callback_context
     if not ctx.triggered:
@@ -1784,52 +2158,52 @@ def update_filter_status(apply_clicks, reset_clicks, hotels, countries, market_s
         try:
             top_countries_data = df[df['country'].isin(df['country'].value_counts().head(10).index)]
             estimated_records = len(top_countries_data)
-        except Exception as e:
+        except Exception:
             estimated_records = len(df)
-            
+
         return [
             dbc.Badge("🟢 Prontos", color="success", className="me-1", style={'fontSize': '11px'}),
             html.Small(f"{estimated_records:,} reg.", style={'color': COLORS['white'], 'fontSize': '11px'})
         ]
-    
+
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
+
     if button_id == 'reset-filters-btn' and reset_clicks:
         try:
             top_countries_data = df[df['country'].isin(df['country'].value_counts().head(10).index)]
             records_count = len(top_countries_data)
-        except Exception as e:
+        except Exception:
             records_count = len(df)
-            
+
         return [
             dbc.Badge("🔄 Reset", color="info", className="me-1", style={'fontSize': '11px'}),
             html.Small(f"{records_count:,} reg.", style={'color': COLORS['white'], 'fontSize': '11px'})
         ]
-    
+
     # Aplicar filtros para calcular status
     try:
         df_filtered = filter_data(df, hotels, countries, market_segments, customer_types,
-                                 adr_range, lead_range, nights_range, guests_range,
-                                 canceled_status, family_status)
-        
+                                  adr_range, lead_range, nights_range, guests_range,
+                                  canceled_status, family_status)
+
         total_bookings = len(df_filtered)
-        
+
         if total_bookings == 0:
             status_color = "danger"
             status_text = "❌ Vazio"
         elif total_bookings < len(df) * 0.05:
-            status_color = "warning" 
+            status_color = "warning"
             status_text = "⚠️ Poucos"
         else:
             status_color = "success"
             status_text = "✅ OK"
-        
+
         return [
             dbc.Badge(status_text, color=status_color, className="me-1", style={'fontSize': '11px'}),
             html.Small(f"{total_bookings:,} reg.", style={'color': COLORS['white'], 'fontSize': '11px'})
         ]
-        
-    except Exception as e:
+
+    except Exception:
         return [
             dbc.Badge("⚠️ Erro", color="danger", className="me-1", style={'fontSize': '11px'}),
             html.Small("N/A", style={'color': COLORS['white'], 'fontSize': '11px'})
@@ -1906,13 +2280,13 @@ def update_dashboard_content(apply_clicks, active_tab, hotels, countries, market
         dbc.Row([
             dbc.Col([
                 dbc.Alert([
-                    html.H5("📊 Visão Geral do Negócio", 
-                           className="alert-heading mb-2", 
-                           style={'fontSize': '18px', 'fontWeight': 'bold'}),
-                    html.P(f"Análise de {total_bookings:,} reservas para decisões estratégicas.", 
-                          className="mb-1", style={'fontSize': '14px'}),
-                    html.Small(f"Status: {'Filtrado' if apply_clicks else 'Completo'}", 
-                              style={'opacity': '0.8', 'fontSize': '12px'})
+                    html.H5("📊 Visão Geral do Negócio",
+                            className="alert-heading mb-2",
+                            style={'fontSize': '18px', 'fontWeight': 'bold'}),
+                    html.P(f"Análise de {total_bookings:,} reservas para decisões estratégicas.",
+                           className="mb-1", style={'fontSize': '14px'}),
+                    html.Small(f"Status: {'Filtrado' if apply_clicks else 'Completo'}",
+                               style={'opacity': '0.8', 'fontSize': '12px'})
                 ], color="primary", style={
                     'borderRadius': '8px',
                     'backgroundColor': f'{COLORS["primary"]}10',
@@ -3015,33 +3389,69 @@ def create_ml_dashboard_optimized(df_filtered):
 
         # ========== PERFIS DE CLIENTES (CACHE) ==========
         dbc.Row([
-            # Coluna 1: Visualização PCA dos Clusters
+            # Gráfico 1: Mapa de Calor
+            dbc.Col([
+                # dbc.Card([
+                #     dbc.CardHeader("🔥 Mapa de Calor de Correlações",
+                #                    style={'backgroundColor': COLORS['accent'], 'color': COLORS['white'],
+                #                          'fontWeight': 'bold', 'padding': '12px 20px'}),
+                #     dbc.CardBody([
+                #         html.P("Correlações entre características principais das reservas:",
+                #                style={'marginBottom': '15px', 'color': COLORS['dark'], 'fontSize': '14px'}),
+                        
+                #         dcc.Graph(
+                #             figure=ml_cache['heatmap_chart'],
+                #             config={'displayModeBar': False}
+                #         ),
+                        
+                #         # Explicação
+                #         html.Div([
+                #             html.H6("📊 Interpretação:", style={'color': COLORS['accent'], 'marginBottom': '8px', 'fontSize': '14px'}),
+                #             html.P("• Vermelho = correlação positiva forte",
+                #                    style={'color': COLORS['dark'], 'marginBottom': '4px', 'fontSize': '13px'}),
+                #             html.P("• Azul = correlação negativa forte",
+                #                    style={'color': COLORS['dark'], 'marginBottom': '4px', 'fontSize': '13px'}),
+                #             html.P("• Branco = sem correlação significativa",
+                #                    style={'color': COLORS['dark'], 'marginBottom': '0px', 'fontSize': '13px'})
+                #         ], style={
+                #             'padding': '12px',
+                #             'backgroundColor': COLORS['background'],
+                #             'borderRadius': '6px',
+                #             'marginTop': '2px'  # Reduzido para diminuir o espaço
+                #         })
+                #     ], style={'backgroundColor': COLORS['white'], 'padding': '15px'})
+                # ], style={'borderRadius': '12px'})
+            ], width=12)
+        ], className="mb-4"),
+        
+        dbc.Row([
+            # Gráfico 2: Distribuições Comparativas
             dbc.Col([
                 dbc.Card([
-                    dbc.CardHeader("🔬 Análise PCA dos Perfis de Clientes",
-                                   style={'backgroundColor': COLORS['accent'], 'color': COLORS['white'], 
+                    dbc.CardHeader("📊 Distribuições por Perfil de Cliente",
+                                   style={'backgroundColor': COLORS['primary'], 'color': COLORS['white'],
                                          'fontWeight': 'bold', 'padding': '12px 20px'}),
                     dbc.CardBody([
-                        html.P("Visualização bidimensional dos clusters identificados por IA:",
+                        html.P("Comparação das características entre diferentes perfis:",
                                style={'marginBottom': '15px', 'color': COLORS['dark'], 'fontSize': '14px'}),
                         
                         dcc.Graph(
-                            figure=ml_cache['pca_chart'],
+                            figure=ml_cache['distribution_chart'],
                             config={'displayModeBar': False}
                         ),
                         
-                        # Explicação técnica (ESTÁTICO)
+                        # Explicação
                         html.Div([
-                            html.H6("📊 Interpretação:", style={'color': COLORS['accent'], 'marginBottom': '8px', 'fontSize': '14px'}),
-                            html.P("• Cada ponto representa uma reserva", 
+                            html.H6("📌 Como usar:", style={'color': COLORS['secondary'], 'marginBottom': '8px', 'fontSize': '14px'}),
+                            html.P("• Caixas mostram distribuição e variabilidade",
                                    style={'color': COLORS['dark'], 'marginBottom': '4px', 'fontSize': '13px'}),
-                            html.P("• Cores diferentes = perfis distintos de comportamento", 
+                            html.P("• Linha central = mediana do grupo",
                                    style={'color': COLORS['dark'], 'marginBottom': '4px', 'fontSize': '13px'}),
-                            html.P("• Distância entre pontos = similaridade comportamental", 
+                            html.P("• Identifique padrões únicos de cada perfil",
                                    style={'color': COLORS['dark'], 'marginBottom': '0px', 'fontSize': '13px'})
                         ], style={
-                            'padding': '12px', 
-                            'backgroundColor': COLORS['background'], 
+                            'padding': '12px',
+                            'backgroundColor': COLORS['background'],
                             'borderRadius': '6px',
                             'marginTop': '10px'
                         })
@@ -3049,15 +3459,52 @@ def create_ml_dashboard_optimized(df_filtered):
                 ], style={'borderRadius': '12px'})
             ], width=6),
             
-            # Coluna 2: Tabela Resumo dos Clusters
+            # Coluna 2: Gráfico de Dispersão Melhorado
+            dbc.Col([
+                # Gráfico 3: Dispersão com Contornos
+                dbc.Card([
+                    dbc.CardHeader("🎯 Dispersão Avançada: Antecedência vs Valor",
+                                   style={'backgroundColor': COLORS['secondary'], 'color': COLORS['white'],
+                                         'fontWeight': 'bold', 'padding': '12px 20px'}),
+                    dbc.CardBody([
+                        html.P("Análise dupla: pontos individuais e densidade de concentração:",
+                               style={'marginBottom': '15px', 'color': COLORS['dark'], 'fontSize': '14px'}),
+                        
+                        dcc.Graph(
+                            figure=ml_cache['scatter_chart'],
+                            config={'displayModeBar': True, 'displaylogo': False}
+                        ),
+                        
+                        # Explicação melhorada
+                        html.Div([
+                            html.H6("💡 Como Interpretar:", style={'color': COLORS['secondary'], 'marginBottom': '8px', 'fontSize': '14px'}),
+                            html.P("• Esquerda: Símbolos diferentes evitam sobreposição visual",
+                                   style={'color': COLORS['dark'], 'marginBottom': '4px', 'fontSize': '13px'}),
+                            html.P("• Direita: Contornos mostram áreas de maior densidade",
+                                   style={'color': COLORS['dark'], 'marginBottom': '4px', 'fontSize': '13px'}),
+                            html.P("• Marcadores X indicam o centro de cada perfil",
+                                   style={'color': COLORS['dark'], 'marginBottom': '0px', 'fontSize': '13px'})
+                        ], style={
+                            'padding': '12px',
+                            'backgroundColor': COLORS['background'],
+                            'borderRadius': '6px',
+                            'marginTop': '10px'
+                        })
+                    ], style={'backgroundColor': COLORS['white'], 'padding': '15px'})
+                ], style={'borderRadius': '12px'})
+            ], width=6)
+        ], className="mb-4"),
+        
+        # Resumo dos Clusters
+        dbc.Row([
             dbc.Col([
                 dbc.Card([
                     dbc.CardHeader("📋 Resumo dos Perfis Identificados",
-                                   style={'backgroundColor': COLORS['primary'], 'color': COLORS['white'], 
+                                   style={'backgroundColor': COLORS['primary'], 'color': COLORS['white'],
                                          'fontWeight': 'bold', 'padding': '12px 20px'}),
                     dbc.CardBody([
                         html.P("Características principais de cada perfil:",
-                               style={'marginBottom': '15px', 'color': COLORS['dark'], 'fontSize': '14px'}),
+                               style={'color': COLORS['dark'], 'fontSize': '14px'}),
                         
                         dcc.Graph(
                             figure=ml_cache['cluster_chart'],
@@ -3068,21 +3515,21 @@ def create_ml_dashboard_optimized(df_filtered):
                         html.Hr(),
                         html.Div([
                             html.H6("📌 Como usar:", style={'color': COLORS['secondary'], 'marginBottom': '8px', 'fontSize': '14px'}),
-                            html.P("• Personalize comunicação por perfil", 
+                            html.P("• Personalize comunicação por perfil",
                                    style={'color': COLORS['dark'], 'marginBottom': '4px', 'fontSize': '13px'}),
-                            html.P("• Ajuste retenção baseado no perfil", 
+                            html.P("• Ajuste retenção baseado no perfil",
                                    style={'color': COLORS['dark'], 'marginBottom': '4px', 'fontSize': '13px'}),
-                            html.P("• Identifique oportunidades de upselling", 
+                            html.P("• Identifique oportunidades de upselling",
                                    style={'color': COLORS['dark'], 'marginBottom': '0px', 'fontSize': '13px'})
                         ], style={
-                            'padding': '12px', 
-                            'backgroundColor': COLORS['background'], 
+                            'padding': '12px',
+                            'backgroundColor': COLORS['background'],
                             'borderRadius': '6px',
                             'marginTop': '10px'
                         })
                     ], style={'backgroundColor': COLORS['white'], 'padding': '15px'})
                 ], style={'borderRadius': '12px'})
-            ], width=6)
+            ], width=12)
         ])
     ])
 
@@ -3116,7 +3563,6 @@ def create_ceo_dashboard_fast(df_filtered):
                 })
             ], width=12)
         ], className="mb-3"),
-
         # Cards de métricas
         dbc.Row([
             dbc.Col([

@@ -6,7 +6,7 @@ max-line-length = 200
 # E501: linha muito longa
 # W503: quebra de linha antes de operador binário
 # E203: espaço antes de ':'
-ignore = W503,E203
+ignore = W503,E203, W293
 
 # Excluir diretórios
 exclude = 
